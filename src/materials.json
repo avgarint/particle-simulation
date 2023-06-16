@@ -1,0 +1,89 @@
+[
+  {
+    "name": "none",
+    "type": 0,
+    "initial_life_time": 0,
+    "initial_color": "(0, 0, 0)",
+    "spread_rules": {
+      "can_replace": [ "none", "water", "sand", "lava" ],
+      "contact_colors": {
+        "none": "(0, 0, 0)",
+        "water": "(0, 0, 0)",
+        "sand": "(0, 0, 0)",
+        "lava": "(0, 0, 0)"
+      },
+      "spread_speed": 0
+    }
+  },
+  {
+    "name": "sand",
+    "type": 1,
+    "initial_life_time": -1,
+    "initial_color": "(255, 255, 0)",
+    "spread_rules": {
+      "can_replace": [ "none", "water" ],
+      "contact_colors": {
+        "none": "(255, 255, 0)",
+        "water": "(255, 255, 0)"
+      },
+      "spread_speed": 3
+    }
+  },
+  {
+    "name": "water",
+    "type": 2,
+    "initial_life_time": -1,
+    "initial_color": "(0, 0, 255)",
+    "spread_rules": {
+      "can_replace": [ "none", "lava" ],
+      "contact_colors": {
+        "none": "(0, 0, 255)",
+        "lava": "(230, 230, 230)"
+      },
+      "spread_speed": 4
+    }
+  },
+  {
+    "name": "lava",
+    "type": 2,
+    "initial_life_time": -1,
+    "initial_color": "(255, 0, 0)",
+    "spread_rules": {
+      "can_replace": [ "none", "water", "sand" ],
+      "contact_colors": {
+        "none": "(255, 0, 0)",
+        "water": "(60, 51, 51)",
+        "sand": "(40, 40, 10)"
+      },
+      "spread_speed": 1
+    }
+  },
+  {
+    "name": "acid",
+    "type": 2,
+    "initial_life_time": -1,
+    "initial_color": "(88, 212, 0)",
+    "spread_rules": {
+      "can_replace": [ "none", "water", "sand" ],
+      "contact_colors": {
+        "none": "(88, 212, 0)",
+        "water": "(188, 166, 166)",
+        "sand": "(81, 55, 55)"
+      },
+      "spread_speed": 3
+    }
+  },
+  {
+    "name": "toxicgas",
+    "type": 3,
+    "initial_life_time": -1,
+    "initial_color": "(220, 220, 220)",
+    "spread_rules": {
+      "can_replace": [ "none" ],
+      "contact_colors": {
+        "none": "(220, 220, 220)"
+      },
+      "spread_speed":  1
+    }
+  }
+]
