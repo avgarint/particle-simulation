@@ -56,7 +56,9 @@ enum BrushType
 
 static bool mouseDown = false;
 static const char* selectedMaterial = MATERIAL_NAME_NONE;
+static const char* selectedBrush = "brush small";
 static BrushType brush = BRUSH_TYPE_SMALL;
+nlohmann::json data;
 
 // --------------------------------------------------------------------------------------------
 
@@ -153,6 +155,7 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
     }
 
     std::ifstream file(jsonPath);
+
     if (!file.is_open())
     {
         std::cout << "Failed to open JSON file: " << jsonPath << std::endl;
@@ -161,7 +164,10 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
 
     try
     {
-        nlohmann::json data = nlohmann::json::parse(file);
+        if (data.is_null())
+        {
+            data = nlohmann::json::parse(file);
+        }
 
         for (const auto& material : data)
         {
@@ -549,31 +555,29 @@ void OnImGuiRenderBrushDropDown()
         "brush big"
     };
 
-    const char* selectedBrushSize = brushes[0];
-
     ImGui::Begin("Parameters");
 
-    if (ImGui::BeginCombo("##brush_selection", selectedBrushSize))
+    if (ImGui::BeginCombo("Brush", selectedBrush))
     {
         for (int n = 0; n < IM_ARRAYSIZE(brushes); n++)
         {
-            bool isSelected = (selectedBrushSize == brushes[n]);
+            bool isSelected = (selectedBrush == brushes[n]);
 
             if (ImGui::Selectable(brushes[n], isSelected))
             {
-                selectedBrushSize = brushes[n];
+                selectedBrush = brushes[n];
 
-                if (selectedBrushSize == brushes[0])
+                if (selectedBrush == brushes[0])
                 { 
                     brush = BRUSH_TYPE_SMALL; 
                 }
 
-                else if (selectedBrushSize == brushes[1])
+                else if (selectedBrush == brushes[1])
                 {
                     brush = BRUSH_TYPE_MEDIUM;
                 }
 
-                else if (selectedBrushSize == brushes[2])
+                else if (selectedBrush == brushes[2])
                 { 
                     brush = BRUSH_TYPE_BIG;
                 }
@@ -607,7 +611,7 @@ void OnImGuiRenderMaterialDropdown()
 
     ImGui::Begin("Parameters");
 
-    if (ImGui::BeginCombo("##material_selection", selectedMaterial))
+    if (ImGui::BeginCombo("Material", selectedMaterial))
     {
         for (int n = 0; n < IM_ARRAYSIZE(materials); n++)
         {
@@ -628,6 +632,11 @@ void OnImGuiRenderMaterialDropdown()
     }
 
     ImGui::End();
+}
+
+void OnImGuiRenderCustomMaterialsPanel()
+{
+    // TODO:
 }
 
 // Returns true on full success.
