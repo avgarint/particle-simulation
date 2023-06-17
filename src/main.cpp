@@ -542,7 +542,7 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const std::vector<std::uni
 // Renders the brush size selection dropdown.
 void OnImGuiRenderBrushDropDown()
 {
-    const char* brushes[] =
+    static constexpr const char* brushes[] =
     {
         "brush small",
         "brush medium",
@@ -595,7 +595,7 @@ void OnImGuiRenderBrushDropDown()
 void OnImGuiRenderMaterialDropdown()
 {
     // TODO: build this from json
-    const char* materials[] = 
+    static constexpr const char* materials[] = 
     { 
         MATERIAL_NAME_NONE,
         MATERIAL_NAME_SAND,
