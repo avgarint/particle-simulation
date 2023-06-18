@@ -722,6 +722,7 @@ int main(int argc, char* argv[])
     if (!InitSDL(window, renderer) || !InitImGui(window, renderer))
     {
         std::cout << "Error on SDL or ImGui init!" << std::endl;
+        return -1;
     }
 
     ImGuiIO& io = ImGui::GetIO();
