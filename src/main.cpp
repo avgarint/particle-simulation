@@ -237,6 +237,61 @@ bool ParticleIsEmpty(Particle* p)
     return p->material.name == MATERIAL_NAME_NONE;
 }
 
+// Returns true on full success.
+bool InitSDL(SDL_Window*& window, SDL_Renderer*& renderer)
+{
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0)
+    {
+        std::cout << "SDL initialization failed: " << SDL_GetError() << " " << Mix_GetError() << std::endl;
+        return false;
+    }
+
+    window = SDL_CreateWindow("Particle simulation",
+        SDL_WINDOWPOS_UNDEFINED,
+        SDL_WINDOWPOS_UNDEFINED,
+        WINDOW_WIDTH,
+        WINDOW_HEIGHT,
+        SDL_WINDOW_SHOWN);
+
+    if (!window)
+    {
+        std::cout << "Window creation failed: " << SDL_GetError() << std::endl;
+        return false;
+    }
+
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+
+    if (!renderer)
+    {
+        std::cout << "Renderer creation failed: " << SDL_GetError() << std::endl;
+        Mix_CloseAudio();
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return false;
+    }
+
+    return true;
+}
+
+// Returns true on full success.
+bool InitImGui(SDL_Window* window, SDL_Renderer* renderer)
+{
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    (void)io;
+    ImGui::StyleColorsDark();
+
+    if (!ImGui_ImplSDL2_InitForSDLRenderer(window, renderer) ||
+        !ImGui_ImplSDLRenderer2_Init(renderer))
+    {
+        std::cout << "Error on ImGui SDL renderer init!" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 // --------------------------------------------------------------------------------------------
 
 // Returns a rect based on the cell located at x and y on the grid.
@@ -635,10 +690,10 @@ void OnImGuiRenderCustomMaterialsPanel()
     ImGui::InputText("Name:", nameBuffer, sizeof(nameBuffer)); // Name
     ImGui::InputInt("Initial life time:", &initialLifeTime); // Life time
     ImGui::ColorPicker3("Initial color:", initialColor); // Color
-    
+
     ImGui::Text("Spread rules"); // Spread rules
     ImGui::Text("Can replace:"); // Can replace
-    
+
     for (size_t i = 0; i < canReplaceEntries.size(); i++)
     {
         char entryBuffer[32];
@@ -670,61 +725,6 @@ void OnImGuiRenderCustomMaterialsPanel()
     }
 
     ImGui::End();
-}
-
-// Returns true on full success.
-bool InitSDL(SDL_Window*& window, SDL_Renderer*& renderer)
-{
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0)
-    {
-        std::cout << "SDL initialization failed: " << SDL_GetError() << " " << Mix_GetError() << std::endl;
-        return false;
-    }
-
-    window = SDL_CreateWindow("Particle simulation",
-                               SDL_WINDOWPOS_UNDEFINED,
-                               SDL_WINDOWPOS_UNDEFINED,
-                               WINDOW_WIDTH,
-                               WINDOW_HEIGHT,
-                               SDL_WINDOW_SHOWN);
-
-    if (!window)
-    {
-        std::cout << "Window creation failed: " << SDL_GetError() << std::endl;
-        return false;
-    }
-
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-
-    if (!renderer)
-    {
-        std::cout << "Renderer creation failed: " << SDL_GetError() << std::endl;
-        Mix_CloseAudio();
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return false;
-    }
-
-    return true;
-}
-
-// Returns true on full success.
-bool InitImGui(SDL_Window* window, SDL_Renderer* renderer)
-{
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    (void)io;
-    ImGui::StyleColorsDark();
-
-    if (!ImGui_ImplSDL2_InitForSDLRenderer(window, renderer) ||
-        !ImGui_ImplSDLRenderer2_Init(renderer))
-    {
-        std::cout << "Error on ImGui SDL renderer init!" << std::endl;
-        return false;
-    }
-
-    return true;
 }
 
 // Destroy ImGui and SDL related elements.
