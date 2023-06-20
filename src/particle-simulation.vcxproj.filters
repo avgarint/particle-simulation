@@ -18,36 +18,22 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="json\json.hpp">
+    <ClCompile Include="imgui_sdl_backend\imgui_impl_sdl2.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="imgui_sdl_backend\imgui_impl_sdlrenderer2.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="imgui_sdl_backend\imgui_impl_sdl2.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="main.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="materials.json" />
-    <None Include="imgui.ini" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="imgui_sdl_backend\imgui_impl_sdlrenderer2.h">
+    <ClInclude Include="imgui_sdl_backend\imgui_impl_sdl2.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="imgui_sdl_backend\imgui_impl_sdl2.h">
+    <ClInclude Include="imgui_sdl_backend\imgui_impl_sdlrenderer2.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="json\json.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="imgui_sdl_backend\LICENSE.txt" />
-    <Text Include="json\LICENSE.txt" />
   </ItemGroup>
 </Project>

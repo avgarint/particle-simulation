@@ -19,7 +19,8 @@
 
 #include "json/json.hpp"
 
-#include <SDL.h>
+#include <SDL2/SDL.h>
+#undef main
 
 #define CELL_SIZE 10
 
@@ -67,6 +68,7 @@ struct SpreadRules
     int spreadSpeed = 0;
     std::vector<std::string> canReplace;
     std::map<std::string, std::string> contactColors;
+    std::map<std::string, std::string> contactSounds;
 };
 
 struct Material
@@ -179,6 +181,7 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
                 p->material.color = ColorStringToSDLColor(material["initial_color"]);
                 p->spreadRules.canReplace = material["spread_rules"]["can_replace"].get<std::vector<std::string>>();
                 p->spreadRules.contactColors = material["spread_rules"]["contact_colors"].get<std::map<std::string, std::string>>();
+                p->spreadRules.contactSounds = material["spread_rules"]["contact_colors"].get<std::map<std::string, std::string>>();
                 p->spreadRules.spreadSpeed = material["spread_rules"]["spread_speed"];
                 return true;
             }
@@ -535,10 +538,10 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const std::vector<std::uni
             SDL_Rect rect = CellToRect(rowIndex, columnIndex, CELL_SIZE);
 
             // Todo: this is slow I know I'll think about optimization later
-            SDL_SetRenderDrawColor(renderer, 
-                                   currentParticle->material.color.r, 
-                                   currentParticle->material.color.g, 
-                                   currentParticle->material.color.b, 
+            SDL_SetRenderDrawColor(renderer,
+                                   currentParticle->material.color.r,
+                                   currentParticle->material.color.g,
+                                   currentParticle->material.color.b,
                                    currentParticle->material.color.a);
             SDL_RenderFillRect(renderer, &rect);
         }
@@ -568,8 +571,8 @@ void OnImGuiRenderBrushDropDown()
                 selectedBrush = brushes[n];
 
                 if (selectedBrush == brushes[0])
-                { 
-                    brush = BRUSH_TYPE_SMALL; 
+                {
+                    brush = BRUSH_TYPE_SMALL;
                 }
 
                 else if (selectedBrush == brushes[1])
@@ -578,7 +581,7 @@ void OnImGuiRenderBrushDropDown()
                 }
 
                 else if (selectedBrush == brushes[2])
-                { 
+                {
                     brush = BRUSH_TYPE_BIG;
                 }
 
@@ -599,8 +602,8 @@ void OnImGuiRenderBrushDropDown()
 void OnImGuiRenderMaterialDropdown()
 {
     // TODO: build this from json
-    static constexpr const char* materials[] = 
-    { 
+    static constexpr const char* materials[] =
+    {
         MATERIAL_NAME_NONE,
         MATERIAL_NAME_SAND,
         MATERIAL_NAME_WATER,
@@ -649,11 +652,11 @@ bool InitSDL(SDL_Window*& window, SDL_Renderer*& renderer)
     }
 
     window = SDL_CreateWindow("Particle simulation",
-                              SDL_WINDOWPOS_UNDEFINED,
-                              SDL_WINDOWPOS_UNDEFINED,
-                              WINDOW_WIDTH,
-                              WINDOW_HEIGHT,
-                              SDL_WINDOW_SHOWN);
+                               SDL_WINDOWPOS_UNDEFINED,
+                               SDL_WINDOWPOS_UNDEFINED,
+                               WINDOW_WIDTH,
+                               WINDOW_HEIGHT,
+                               SDL_WINDOW_SHOWN);
 
     if (!window)
     {
@@ -666,7 +669,6 @@ bool InitSDL(SDL_Window*& window, SDL_Renderer*& renderer)
     if (!renderer)
     {
         std::cout << "Renderer creation failed: " << SDL_GetError() << std::endl;
-
         SDL_DestroyWindow(window);
         SDL_Quit();
         return false;
@@ -683,7 +685,7 @@ bool InitImGui(SDL_Window* window, SDL_Renderer* renderer)
     ImGuiIO& io = ImGui::GetIO();
     (void)io;
     ImGui::StyleColorsDark();
-    
+
     if (!ImGui_ImplSDL2_InitForSDLRenderer(window, renderer) ||
         !ImGui_ImplSDLRenderer2_Init(renderer))
     {

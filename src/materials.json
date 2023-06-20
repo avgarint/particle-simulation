@@ -12,6 +12,7 @@
         "sand": "(0, 0, 0)",
         "lava": "(0, 0, 0)"
       },
+      "contact_sounds": {},
       "spread_speed": 0
     }
   },
@@ -26,6 +27,7 @@
         "none": "(255, 255, 0)",
         "water": "(255, 255, 0)"
       },
+      "contact_sounds":  {},
       "spread_speed": 3
     }
   },
@@ -40,6 +42,7 @@
         "none": "(0, 0, 255)",
         "lava": "(230, 230, 230)"
       },
+      "contact_sounds": {},
       "spread_speed": 4
     }
   },
@@ -55,6 +58,7 @@
         "water": "(60, 51, 51)",
         "sand": "(40, 40, 10)"
       },
+      "contact_sounds":  {},
       "spread_speed": 1
     }
   },
@@ -70,6 +74,9 @@
         "water": "(188, 166, 166)",
         "sand": "(81, 55, 55)"
       },
+      "contact_sounds": {
+        "water":  "acid_bubbles.mp3"
+      },
       "spread_speed": 3
     }
   },
@@ -83,6 +90,7 @@
       "contact_colors": {
         "none": "(220, 220, 220)"
       },
+      "contact_sounds": {},
       "spread_speed":  1
     }
   }
