@@ -20,21 +20,15 @@
 #include "json/json.hpp"
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
 #undef main
 
-#define CELL_SIZE 10
-
+#define CELL_SIZE     10
 #define WINDOW_HEIGHT 800
 #define WINDOW_WIDTH  800
 
 #define MATERIAL_FILE_PATH "./materials.json"
-
-#define MATERIAL_NAME_NONE     "none"
-#define MATERIAL_NAME_SAND     "sand"
-#define MATERIAL_NAME_WATER    "water"
-#define MATERIAL_NAME_LAVA     "lava"
-#define MATERIAL_NAME_ACID     "acid"
-#define MATERIAL_NAME_TOXICGAS "toxicgas"
+#define MATERIAL_NAME_NONE "none"
 
 // --------------------------------------------------------------------------------------------
 
@@ -55,11 +49,24 @@ enum BrushType
 
 // --------------------------------------------------------------------------------------------
 
+static constexpr const char* brushOptions[] = { "Small (1px)", "Medium (extent = 8)", "Big (extent = 16)" };
+static constexpr const char* materialOptions[] = { MATERIAL_NAME_NONE,
+                                                   "sand",
+                                                   "water",
+                                                   "lava",
+                                                   "acid",
+                                                   "toxicgas"};
+
+static const char* selectedMaterialName = materialOptions[0];
+static const char* selectedBrushType = brushOptions[0];
+
 static bool mouseDown = false;
-static const char* selectedMaterial = MATERIAL_NAME_NONE;
-static const char* selectedBrush = "brush small";
+
+std::map<std::string, Mix_Chunk*> sounds;
+
 static BrushType brush = BRUSH_TYPE_SMALL;
-nlohmann::json data;
+
+nlohmann::json jsonData;
 
 // --------------------------------------------------------------------------------------------
 
@@ -166,12 +173,12 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
 
     try
     {
-        if (data.is_null())
+        if (jsonData.is_null())
         {
-            data = nlohmann::json::parse(file);
+            jsonData = nlohmann::json::parse(file);
         }
 
-        for (const auto& material : data)
+        for (const auto& material : jsonData)
         {
             if (material["name"] == p->material.name)
             {
@@ -181,7 +188,7 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
                 p->material.color = ColorStringToSDLColor(material["initial_color"]);
                 p->spreadRules.canReplace = material["spread_rules"]["can_replace"].get<std::vector<std::string>>();
                 p->spreadRules.contactColors = material["spread_rules"]["contact_colors"].get<std::map<std::string, std::string>>();
-                p->spreadRules.contactSounds = material["spread_rules"]["contact_colors"].get<std::map<std::string, std::string>>();
+                p->spreadRules.contactSounds = material["spread_rules"]["contact_sounds"].get<std::map<std::string, std::string>>();
                 p->spreadRules.spreadSpeed = material["spread_rules"]["spread_speed"];
                 return true;
             }
@@ -392,6 +399,11 @@ void UpdateLiquid(const std::vector<std::unique_ptr<Particle>>& cells, int gridW
     {
         liquidParticle->material.color = GetParticleContactColor(liquidParticle, bParticle->material.name);
         SwapParticles(*bParticle, *liquidParticle);
+        
+        if (Mix_Playing(-1) != 1)
+        {
+            Mix_PlayChannel(-1, sounds["bubbles"], 0);
+        }
     }
 
     else if (blParticle && ParticleIsEmpty(blParticle)) // Move down and left
@@ -464,30 +476,21 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const std::vector<s
         int mouseX, mouseY;
         SDL_GetMouseState(&mouseX, &mouseY);
 
-        std::string mat = selectedMaterial;
-
         switch (brush)
         {
         case BRUSH_TYPE_SMALL:
         {
             auto coords = MouseCoordinatesToXY(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY);
-            RevealParticleAt(cells, gridWidth, std::get<0>(coords), std::get<1>(coords), mat, MATERIAL_FILE_PATH);
+            RevealParticleAt(cells, gridWidth, std::get<0>(coords), std::get<1>(coords), selectedMaterialName, MATERIAL_FILE_PATH);
             break;
         }
 
         case BRUSH_TYPE_MEDIUM:
-        {
-            int brushSize = static_cast<std::underlying_type<BrushType>::type>(brush);
-            SDL_Rect bounds = MouseCoordinatesToBounds(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY, brushSize);
-            RevealParticlesAt(cells, gridWidth, bounds, mat, MATERIAL_FILE_PATH);
-            break;
-        }
-
         case BRUSH_TYPE_BIG:
         {
             int brushSize = static_cast<std::underlying_type<BrushType>::type>(brush);
             SDL_Rect bounds = MouseCoordinatesToBounds(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY, brushSize);
-            RevealParticlesAt(cells, gridWidth, bounds, mat, MATERIAL_FILE_PATH);
+            RevealParticlesAt(cells, gridWidth, bounds, selectedMaterialName, MATERIAL_FILE_PATH);
             break;
         }
 
@@ -504,7 +507,6 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const std::vector<std::uni
     {
         for (int x = 0; x < gridWidth; x++)
         {
-            // todo: check for nullptr
             int matType = GetParticleAt(cells, gridWidth, x, y)->material.type;
 
             switch (matType)
@@ -536,8 +538,6 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const std::vector<std::uni
         {
             Particle* currentParticle = GetParticleAt(cells, gridWidth, rowIndex, columnIndex);
             SDL_Rect rect = CellToRect(rowIndex, columnIndex, CELL_SIZE);
-
-            // Todo: this is slow I know I'll think about optimization later
             SDL_SetRenderDrawColor(renderer,
                                    currentParticle->material.color.r,
                                    currentParticle->material.color.g,
@@ -551,36 +551,29 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const std::vector<std::uni
 // Renders the brush size selection dropdown.
 void OnImGuiRenderBrushDropDown()
 {
-    static constexpr const char* brushes[] =
-    {
-        "brush small",
-        "brush medium",
-        "brush big"
-    };
-
     ImGui::Begin("Parameters");
 
-    if (ImGui::BeginCombo("Brush", selectedBrush))
+    if (ImGui::BeginCombo("Brush", selectedBrushType))
     {
-        for (int n = 0; n < IM_ARRAYSIZE(brushes); n++)
+        for (int i = 0; i < IM_ARRAYSIZE(brushOptions); i++)
         {
-            bool isSelected = (selectedBrush == brushes[n]);
+            bool isSelected = (selectedBrushType == brushOptions[i]);
 
-            if (ImGui::Selectable(brushes[n], isSelected))
+            if (ImGui::Selectable(brushOptions[i], isSelected))
             {
-                selectedBrush = brushes[n];
+                selectedBrushType = brushOptions[i];
 
-                if (selectedBrush == brushes[0])
+                if (selectedBrushType == brushOptions[0])
                 {
                     brush = BRUSH_TYPE_SMALL;
                 }
 
-                else if (selectedBrush == brushes[1])
+                else if (selectedBrushType == brushOptions[1])
                 {
                     brush = BRUSH_TYPE_MEDIUM;
                 }
 
-                else if (selectedBrush == brushes[2])
+                else if (selectedBrushType == brushOptions[2])
                 {
                     brush = BRUSH_TYPE_BIG;
                 }
@@ -601,28 +594,17 @@ void OnImGuiRenderBrushDropDown()
 // Renders the material selection dropdown.
 void OnImGuiRenderMaterialDropdown()
 {
-    // TODO: build this from json
-    static constexpr const char* materials[] =
-    {
-        MATERIAL_NAME_NONE,
-        MATERIAL_NAME_SAND,
-        MATERIAL_NAME_WATER,
-        MATERIAL_NAME_LAVA,
-        MATERIAL_NAME_ACID,
-        MATERIAL_NAME_TOXICGAS
-    };
-
     ImGui::Begin("Parameters");
 
-    if (ImGui::BeginCombo("Material", selectedMaterial))
+    if (ImGui::BeginCombo("Material", selectedMaterialName))
     {
-        for (int n = 0; n < IM_ARRAYSIZE(materials); n++)
+        for (int i = 0; i < IM_ARRAYSIZE(materialOptions); i++)
         {
-            bool isSelected = (selectedMaterial == materials[n]);
+            bool isSelected = (selectedMaterialName == materialOptions[i]);
 
-            if (ImGui::Selectable(materials[n], isSelected))
+            if (ImGui::Selectable(materialOptions[i], isSelected))
             {
-                selectedMaterial = materials[n];
+                selectedMaterialName = materialOptions[i];
 
                 if (isSelected)
                 {
@@ -637,17 +619,65 @@ void OnImGuiRenderMaterialDropdown()
     ImGui::End();
 }
 
+// Renders a panel which can help the user to create any type of materials.
 void OnImGuiRenderCustomMaterialsPanel()
 {
-    // TODO:
+    static char nameBuffer[32];
+    static float initialColor[3];
+    static int initialLifeTime;
+    static int spreadSpeed;
+    static std::vector<std::string> canReplaceEntries;
+    static std::map<std::string, std::string> contactColorsEntries;
+    static std::map<std::string, std::string> contactSoundsEntries;
+
+    ImGui::Begin("Custom material editor");
+
+    ImGui::InputText("Name:", nameBuffer, sizeof(nameBuffer)); // Name
+    ImGui::InputInt("Initial life time:", &initialLifeTime); // Life time
+    ImGui::ColorPicker3("Initial color:", initialColor); // Color
+    
+    ImGui::Text("Spread rules"); // Spread rules
+    ImGui::Text("Can replace:"); // Can replace
+    
+    for (size_t i = 0; i < canReplaceEntries.size(); i++)
+    {
+        char entryBuffer[32];
+        strncpy_s(entryBuffer, canReplaceEntries[i].c_str(), sizeof(entryBuffer));
+
+        std::string inputId = "##" + std::to_string(i);
+
+        if (ImGui::InputText(inputId.c_str(), entryBuffer, sizeof(entryBuffer)))
+        {
+            canReplaceEntries[i] = entryBuffer;
+        }
+    }
+
+    if (ImGui::SmallButton("Add new replacement"))
+    {
+        canReplaceEntries.emplace_back();
+    }
+
+    ImGui::Text("Contact colors:"); // Contact colors
+    ImGui::Text("Contact sounds:"); // Contact sounds
+    ImGui::InputInt("Spread speed:", &spreadSpeed); // Spread speed
+
+    if (ImGui::Button("Save material to file"))
+    {
+        nlohmann::json newMaterial;
+        newMaterial["name"] = nameBuffer;
+        newMaterial["type"] = 0;
+        // ...
+    }
+
+    ImGui::End();
 }
 
 // Returns true on full success.
 bool InitSDL(SDL_Window*& window, SDL_Renderer*& renderer)
 {
-    if (SDL_Init(SDL_INIT_VIDEO) < 0)
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0)
     {
-        std::cout << "SDL initialization failed: " << SDL_GetError() << std::endl;
+        std::cout << "SDL initialization failed: " << SDL_GetError() << " " << Mix_GetError() << std::endl;
         return false;
     }
 
@@ -669,6 +699,7 @@ bool InitSDL(SDL_Window*& window, SDL_Renderer*& renderer)
     if (!renderer)
     {
         std::cout << "Renderer creation failed: " << SDL_GetError() << std::endl;
+        Mix_CloseAudio();
         SDL_DestroyWindow(window);
         SDL_Quit();
         return false;
@@ -708,12 +739,6 @@ void Shutdown(SDL_Window* window, SDL_Renderer* renderer)
     SDL_Quit();
 }
 
-void ClearWindow(SDL_Renderer* renderer)
-{
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
-}
-
 int main(int argc, char* argv[])
 {
     SDL_Window* window = nullptr;
@@ -727,9 +752,12 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    ImGuiIO& io = ImGui::GetIO();
+    /*Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024);
+    sounds["bubbles"] = Mix_LoadWAV("./art/bubbles.wav");
+    sounds["splash"] = Mix_LoadWAV("./art/splash.wav");*/
 
-    ClearWindow(renderer);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
 
     std::vector<std::unique_ptr<Particle>> cells;
 
@@ -744,6 +772,8 @@ int main(int argc, char* argv[])
         newCell->material.type = MATERIAL_TYPE_NONE;
         cells.push_back(std::move(newCell));
     }
+
+    ImGuiIO& io = ImGui::GetIO();
 
     // Game loop
     while (!shouldQuit)
@@ -766,6 +796,7 @@ int main(int argc, char* argv[])
 
         OnImGuiRenderBrushDropDown();
         OnImGuiRenderMaterialDropdown();
+        OnImGuiRenderCustomMaterialsPanel();
 
         ImGui::Render();
 
