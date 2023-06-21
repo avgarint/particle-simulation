@@ -1,97 +1,202 @@
 [
   {
-    "name": "none",
-    "type": 0,
+    "initial_color": [
+      0,
+      0,
+      0
+    ],
     "initial_life_time": 0,
-    "initial_color": "(0, 0, 0)",
+    "name": "none",
     "spread_rules": {
-      "can_replace": [ "none", "water", "sand", "lava" ],
+      "can_replace": [
+        "none",
+        "water",
+        "sand",
+        "lava"
+      ],
       "contact_colors": {
-        "none": "(0, 0, 0)",
-        "water": "(0, 0, 0)",
-        "sand": "(0, 0, 0)",
-        "lava": "(0, 0, 0)"
+        "lava": [
+          0,
+          0,
+          0
+        ],
+        "none": [
+          0,
+          0,
+          0
+        ],
+        "sand": [
+          0,
+          0,
+          0
+        ],
+        "water": [
+          0,
+          0,
+          0
+        ]
       },
       "contact_sounds": {},
       "spread_speed": 0
-    }
+    },
+    "type": 0
   },
   {
+    "initial_color": [
+      255,
+      255,
+      0
+    ],
+    "initial_life_time": -1,
     "name": "sand",
-    "type": 1,
-    "initial_life_time": -1,
-    "initial_color": "(255, 255, 0)",
     "spread_rules": {
-      "can_replace": [ "none", "water" ],
+      "can_replace": [
+        "none",
+        "water"
+      ],
       "contact_colors": {
-        "none": "(255, 255, 0)",
-        "water": "(255, 255, 0)"
+        "none": [
+          255,
+          255,
+          0
+        ],
+        "water": [
+          255,
+          255,
+          0
+        ]
       },
-      "contact_sounds":  {},
+      "contact_sounds": {},
       "spread_speed": 3
-    }
+    },
+    "type": 1
   },
   {
-    "name": "water",
-    "type": 2,
+    "initial_color": [
+      0,
+      0,
+      255
+    ],
     "initial_life_time": -1,
-    "initial_color": "(0, 0, 255)",
+    "name": "water",
     "spread_rules": {
-      "can_replace": [ "none", "lava" ],
+      "can_replace": [
+        "none",
+        "lava"
+      ],
       "contact_colors": {
-        "none": "(0, 0, 255)",
-        "lava": "(230, 230, 230)"
+        "lava": [
+          230,
+          230,
+          0
+        ],
+        "none": [
+          0,
+          0,
+          255
+        ]
       },
       "contact_sounds": {},
       "spread_speed": 4
-    }
+    },
+    "type": 2
   },
   {
+    "initial_color": [
+      255,
+      0,
+      0
+    ],
+    "initial_life_time": -1,
     "name": "lava",
-    "type": 2,
-    "initial_life_time": -1,
-    "initial_color": "(255, 0, 0)",
     "spread_rules": {
-      "can_replace": [ "none", "water", "sand" ],
+      "can_replace": [
+        "none",
+        "water",
+        "sand"
+      ],
       "contact_colors": {
-        "none": "(255, 0, 0)",
-        "water": "(60, 51, 51)",
-        "sand": "(40, 40, 10)"
-      },
-      "contact_sounds":  {},
-      "spread_speed": 1
-    }
-  },
-  {
-    "name": "acid",
-    "type": 2,
-    "initial_life_time": -1,
-    "initial_color": "(88, 212, 0)",
-    "spread_rules": {
-      "can_replace": [ "none", "water", "sand" ],
-      "contact_colors": {
-        "none": "(88, 212, 0)",
-        "water": "(188, 166, 166)",
-        "sand": "(81, 55, 55)"
-      },
-      "contact_sounds": {
-        "water":  "acid_bubbles.mp3"
-      },
-      "spread_speed": 3
-    }
-  },
-  {
-    "name": "toxicgas",
-    "type": 3,
-    "initial_life_time": -1,
-    "initial_color": "(220, 220, 220)",
-    "spread_rules": {
-      "can_replace": [ "none" ],
-      "contact_colors": {
-        "none": "(220, 220, 220)"
+        "none": [
+          255,
+          0,
+          0
+        ],
+        "sand": [
+          40,
+          40,
+          10
+        ],
+        "water": [
+          60,
+          51,
+          51
+        ]
       },
       "contact_sounds": {},
-      "spread_speed":  1
-    }
+      "spread_speed": 1
+    },
+    "type": 2
+  },
+  {
+    "initial_color": [
+      88,
+      212,
+      0
+    ],
+    "initial_life_time": -1,
+    "name": "acid",
+    "spread_rules": {
+      "can_replace": [
+        "none",
+        "water",
+        "sand"
+      ],
+      "contact_colors": {
+        "none": [
+          88,
+          212,
+          0
+        ],
+        "sand": [
+          81,
+          55,
+          55
+        ],
+        "water": [
+          188,
+          166,
+          166
+        ]
+      },
+      "contact_sounds": {
+        "water": "acid_bubbles.mp3"
+      },
+      "spread_speed": 3
+    },
+    "type": 2
+  },
+  {
+    "initial_color": [
+      220,
+      220,
+      220
+    ],
+    "initial_life_time": -1,
+    "name": "toxicgas",
+    "spread_rules": {
+      "can_replace": [
+        "none"
+      ],
+      "contact_colors": {
+        "none": [
+          220,
+          220,
+          220
+        ]
+      },
+      "contact_sounds": {},
+      "spread_speed": 1
+    },
+    "type": 3
   }
 ]

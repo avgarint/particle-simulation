@@ -6,6 +6,7 @@
 #include <map>
 #include <tuple>
 #include <cmath>
+#include <string>
 #include <random>
 #include <vector>
 #include <memory>
@@ -16,6 +17,7 @@
 #include <imgui.h>
 #include "imgui_sdl_backend/imgui_impl_sdl2.h"
 #include "imgui_sdl_backend/imgui_impl_sdlrenderer2.h"
+#include <imgui_stdlib.h> // ImGui with std::string
 
 #include "json/json.hpp"
 
@@ -72,9 +74,9 @@ nlohmann::json jsonData;
 
 struct SpreadRules
 {
-    int spreadSpeed = 0;
+    int spreadSpeed;
     std::vector<std::string> canReplace;
-    std::map<std::string, std::string> contactColors;
+    std::map<std::string, SDL_Color> contactColors;
     std::map<std::string, std::string> contactSounds;
 };
 
@@ -93,6 +95,22 @@ struct Particle
     Material material;
 };
 
+struct CustomParticle
+{
+    std::string name;
+    int type;
+    float initialLifeTime;
+    float initialColor[3];
+    std::vector<std::string> canReplace;
+    std::map<std::string, std::string> contactColors;
+    std::map<std::string, std::string> contactSounds;
+    int spreadSpeed;
+};
+
+// --------------------------------------------------------------------------------------------
+
+typedef std::vector<std::unique_ptr<Particle>> Grid;
+
 // --------------------------------------------------------------------------------------------
 
 std::default_random_engine rng;
@@ -108,26 +126,8 @@ float RandomFloat(float min, float max)
 
 // --------------------------------------------------------------------------------------------
 
-// Converts and returns a string in a tuple like format made of three values 
-// (r, b, b) to a SDL_Color struct. The alpha channel is set to 255.
-SDL_Color ColorStringToSDLColor(const std::string& colorString)
-{
-    std::istringstream iss(colorString);
-    char discard;
-    int r, g, b;
-    iss >> discard >> r >> discard >> g >> discard >> b >> discard;
-
-    SDL_Color color;
-    color.r = static_cast<Uint8>(r);
-    color.g = static_cast<Uint8>(g);
-    color.b = static_cast<Uint8>(b);
-    color.a = 255;
-
-    return color;
-}
-
 // Returns a new rgb color as an SDL_Color struct that the particle p should
-// take when in contact with the material named materialName.
+// take when in collides with the material named materialName.
 SDL_Color GetParticleContactColor(Particle* p, const std::string& materialName)
 {
     if (p)
@@ -137,7 +137,7 @@ SDL_Color GetParticleContactColor(Particle* p, const std::string& materialName)
         auto it = contactColors.find(materialName);
         if (it != contactColors.end())
         {
-            return ColorStringToSDLColor(it->second);
+            return it->second;
         }
     }
 
@@ -185,9 +185,20 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
                 p->material.name = material["name"];
                 p->material.type = material["type"];
                 p->lifeTime = material["initial_life_time"];
-                p->material.color = ColorStringToSDLColor(material["initial_color"]);
+                p->material.color = { material["initial_color"][0], material["initial_color"][1], material["initial_color"][2] };
+
                 p->spreadRules.canReplace = material["spread_rules"]["can_replace"].get<std::vector<std::string>>();
-                p->spreadRules.contactColors = material["spread_rules"]["contact_colors"].get<std::map<std::string, std::string>>();
+
+                const auto& contactColorsJson = material["spread_rules"]["contact_colors"];
+
+                for (auto it = contactColorsJson.begin(); it != contactColorsJson.end(); ++it)
+                {
+                    const std::string& key = it.key();
+                    const std::vector<float>& colorArray = it.value();
+                    SDL_Color color = { static_cast<Uint8>(colorArray[0]), static_cast<Uint8>(colorArray[1]), static_cast<Uint8>(colorArray[2]), 255 };
+                    p->spreadRules.contactColors[key] = color;
+                }
+
                 p->spreadRules.contactSounds = material["spread_rules"]["contact_sounds"].get<std::map<std::string, std::string>>();
                 p->spreadRules.spreadSpeed = material["spread_rules"]["spread_speed"];
                 return true;
@@ -202,6 +213,46 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
         std::cout << "Failed to parse JSON: " << ex.what() << std::endl;
         return false;
     }
+}
+
+// Writes to the .json file located at savePath the data held by the particle p.
+void SerializeParticle(const CustomParticle& p, const std::string& savePath)
+{
+    nlohmann::json newMaterial =
+    {
+            { "name", p.name },
+            { "type", p.type },
+            { "initial_life_time", p.initialLifeTime },
+            { "initial_color", p.initialColor },
+            { "spread_rules", {
+                { "can_replace", p.canReplace },
+                { "contact_colors", p.contactColors },
+                { "contact_sounds", p.contactSounds },
+                { "spread_speed", p.spreadSpeed }
+            }}
+    };
+
+    std::ifstream file(savePath);
+    nlohmann::json existingData;
+
+    if (file.good())
+    {
+        file >> existingData;
+        file.close();
+    }
+
+    if (!existingData.is_array())
+    {
+        existingData = nlohmann::json::array();
+    }
+
+    // Add the new material to the existing materials array
+    existingData.push_back(newMaterial);
+
+    // Write the updated JSON data back to the file with inline array formatting
+    std::ofstream outFile(savePath);
+    outFile << existingData.dump(2) << std::endl;
+    outFile.close();
 }
 
 // Returns true if the particle p is allowed to spread and replace the material
@@ -225,7 +276,7 @@ bool ParticleCanSpreadTo(Particle* p, const std::string& materialName)
 }
 
 // Returns wether the cell located at x and y on the grid is empty or not.
-bool CellIsEmpty(const std::vector<std::unique_ptr<Particle>>& cells, int gridWidth, int x, int y)
+bool CellIsEmpty(const Grid& cells, int gridWidth, int x, int y)
 {
     int index = GetCellIndex(x, y, gridWidth);
     return cells[index]->material.name == MATERIAL_NAME_NONE;
@@ -297,7 +348,7 @@ bool InitImGui(SDL_Window* window, SDL_Renderer* renderer)
 // Returns a rect based on the cell located at x and y on the grid.
 SDL_Rect CellToRect(int x, int y, int cellSize)
 {
-    SDL_Rect ret;
+    SDL_Rect ret{};
     ret.x = x * cellSize;
     ret.y = y * cellSize;
     ret.w = cellSize;
@@ -322,7 +373,7 @@ SDL_Rect MouseCoordinatesToBounds(int gridWidth, int gridHeight, int cellSize, i
 // --------------------------------------------------------------------------------------------
 
 // Returns the particle located at x and y in the grid.
-Particle* GetParticleAt(const std::vector<std::unique_ptr<Particle>>& cells, int gridWidth, int x, int y)
+Particle* GetParticleAt(const Grid& cells, int gridWidth, int x, int y)
 {
     int index = GetCellIndex(gridWidth, x, y);
     if (index >= 0 && index < cells.size())
@@ -350,7 +401,7 @@ std::tuple<int, int> MouseCoordinatesToXY(int gridWidth, int gridHeight, int cel
 // --------------------------------------------------------------------------------------------
 
 // Lights up a particle from the grid located at x and y.
-void RevealParticleAt(const std::vector<std::unique_ptr<Particle>>& cells, int gridWidth, int x, int y, const std::string& materialName, const std::string& jsonPath)
+void RevealParticleAt(const Grid& cells, int gridWidth, int x, int y, const std::string& materialName, const std::string& jsonPath)
 {
     Particle* spawnParticle = GetParticleAt(cells, gridWidth, x, y);
 
@@ -361,7 +412,7 @@ void RevealParticleAt(const std::vector<std::unique_ptr<Particle>>& cells, int g
 }
 
 // Lights up particles from the grid located in the bounds.
-void RevealParticlesAt(const std::vector<std::unique_ptr<Particle>>& cells, int gridWidth, const SDL_Rect& bounds, const std::string& materialName, const std::string& jsonPath)
+void RevealParticlesAt(const Grid& cells, int gridWidth, const SDL_Rect& bounds, const std::string& materialName, const std::string& jsonPath)
 {
     int xStart = bounds.x;
     int yStart = bounds.y;
@@ -411,7 +462,7 @@ void DrawParticle(SDL_Renderer* renderer, Particle* p, const SDL_Rect& rect)
 }
 
 // Updates the solid particle located at x and y on the grid.
-void UpdateSolid(const std::vector<std::unique_ptr<Particle>>& cells, int gridWidth, int x, int y)
+void UpdateSolid(const Grid& cells, int gridWidth, int x, int y)
 {
     Particle* solidParticle = GetParticleAt(cells, gridWidth, x, y);
 
@@ -438,7 +489,7 @@ void UpdateSolid(const std::vector<std::unique_ptr<Particle>>& cells, int gridWi
 }
 
 // Updates the liquid particle located at x and y on the grid.
-void UpdateLiquid(const std::vector<std::unique_ptr<Particle>>& cells, int gridWidth, int x, int y)
+void UpdateLiquid(const Grid& cells, int gridWidth, int x, int y)
 {
     Particle* liquidParticle = GetParticleAt(cells, gridWidth, x, y);
 
@@ -454,11 +505,6 @@ void UpdateLiquid(const std::vector<std::unique_ptr<Particle>>& cells, int gridW
     {
         liquidParticle->material.color = GetParticleContactColor(liquidParticle, bParticle->material.name);
         SwapParticles(*bParticle, *liquidParticle);
-        
-        if (Mix_Playing(-1) != 1)
-        {
-            Mix_PlayChannel(-1, sounds["bubbles"], 0);
-        }
     }
 
     else if (blParticle && ParticleIsEmpty(blParticle)) // Move down and left
@@ -483,7 +529,7 @@ void UpdateLiquid(const std::vector<std::unique_ptr<Particle>>& cells, int gridW
 }
 
 // Updates the gas particle located at x and y on the grid.
-void UpdateGas(const std::vector<std::unique_ptr<Particle>>& cells, int gridWidth, int x, int y)
+void UpdateGas(const Grid& cells, int gridWidth, int x, int y)
 {
     Particle* gasParticle = GetParticleAt(cells, gridWidth, x, y);
 
@@ -508,7 +554,7 @@ void UpdateGas(const std::vector<std::unique_ptr<Particle>>& cells, int gridWidt
 }
 
 // Updates the inputs related the the material selection.
-void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const std::vector<std::unique_ptr<Particle>>& cells, int gridWidth, int gridHeight)
+void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, int gridWidth, int gridHeight)
 {
     if (event.type == SDL_MOUSEBUTTONDOWN)
     {
@@ -556,7 +602,7 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const std::vector<s
 }
 
 // Updates the particles motion.
-void UpdateParticleSimulation(SDL_Renderer* renderer, const std::vector<std::unique_ptr<Particle>>& cells, int gridHeight, int gridWidth)
+void UpdateParticleSimulation(SDL_Renderer* renderer, const Grid& cells, int gridHeight, int gridWidth)
 {
     for (int y = gridHeight - 1; y > 0; y--)
     {
@@ -603,11 +649,9 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const std::vector<std::uni
     }
 }
 
-// Renders the brush size selection dropdown.
-void OnImGuiRenderBrushDropDown()
+// Renders a panel with the spawning controls (brush, size, material...)
+void OnImGuiRenderControls()
 {
-    ImGui::Begin("Parameters");
-
     if (ImGui::BeginCombo("Brush", selectedBrushType))
     {
         for (int i = 0; i < IM_ARRAYSIZE(brushOptions); i++)
@@ -622,12 +666,10 @@ void OnImGuiRenderBrushDropDown()
                 {
                     brush = BRUSH_TYPE_SMALL;
                 }
-
                 else if (selectedBrushType == brushOptions[1])
                 {
                     brush = BRUSH_TYPE_MEDIUM;
                 }
-
                 else if (selectedBrushType == brushOptions[2])
                 {
                     brush = BRUSH_TYPE_BIG;
@@ -642,14 +684,6 @@ void OnImGuiRenderBrushDropDown()
 
         ImGui::EndCombo();
     }
-
-    ImGui::End();
-}
-
-// Renders the material selection dropdown.
-void OnImGuiRenderMaterialDropdown()
-{
-    ImGui::Begin("Parameters");
 
     if (ImGui::BeginCombo("Material", selectedMaterialName))
     {
@@ -670,61 +704,116 @@ void OnImGuiRenderMaterialDropdown()
 
         ImGui::EndCombo();
     }
-
-    ImGui::End();
 }
 
 // Renders a panel which can help the user to create any type of materials.
 void OnImGuiRenderCustomMaterialsPanel()
 {
-    static char nameBuffer[32];
-    static float initialColor[3];
-    static int initialLifeTime;
-    static int spreadSpeed;
-    static std::vector<std::string> canReplaceEntries;
-    static std::map<std::string, std::string> contactColorsEntries;
-    static std::map<std::string, std::string> contactSoundsEntries;
+    static CustomParticle p;
 
-    ImGui::Begin("Custom material editor");
+    ImGui::InputText("Name:", &p.name);
+    ImGui::InputInt("Type:", &p.type);
+    ImGui::InputFloat("Initial life time:", &p.initialLifeTime);
+    ImGui::ColorPicker3("Initial color:", p.initialColor);
 
-    ImGui::InputText("Name:", nameBuffer, sizeof(nameBuffer)); // Name
-    ImGui::InputInt("Initial life time:", &initialLifeTime); // Life time
-    ImGui::ColorPicker3("Initial color:", initialColor); // Color
+    ImGui::Text("Spread rules");
+    ImGui::Text("Can replace:");
 
-    ImGui::Text("Spread rules"); // Spread rules
-    ImGui::Text("Can replace:"); // Can replace
-
-    for (size_t i = 0; i < canReplaceEntries.size(); i++)
+    for (int i = 0; i < p.canReplace.size(); i++)
     {
-        char entryBuffer[32];
-        strncpy_s(entryBuffer, canReplaceEntries[i].c_str(), sizeof(entryBuffer));
+        std::string inputId = "##canreplace" + std::to_string(i);
+        ImGui::InputText(inputId.c_str(), &p.canReplace[i]);
+    }
 
-        std::string inputId = "##" + std::to_string(i);
+    if (ImGui::SmallButton("Add new replacement entry"))
+    {
+        p.canReplace.emplace_back();
+    }
 
-        if (ImGui::InputText(inputId.c_str(), entryBuffer, sizeof(entryBuffer)))
+    ImGui::Text("Contact colors:");
+
+    auto colorIt = p.contactColors.begin();
+    size_t colorIndex = 0;
+
+    for (; colorIt != p.contactColors.end();)
+    {
+        std::string oldKey = colorIt->first;
+        std::string value = colorIt->second;
+
+        std::string keyID = "##ckey" + std::to_string(colorIndex);
+        std::string valueID = "##cvalue" + std::to_string(colorIndex);
+
+        ImGui::InputText(keyID.c_str(), &oldKey);
+        ImGui::SameLine();
+        ImGui::InputText(valueID.c_str(), &value);
+
+        if (oldKey != colorIt->first)
         {
-            canReplaceEntries[i] = entryBuffer;
+            // Key has changed, remove the old entry and insert a new one
+            auto it = p.contactColors.extract(colorIt++);
+            it.key() = oldKey;
+            p.contactColors.insert(std::move(it));
         }
+        else
+        {
+            // Update the value of the existing entry
+            colorIt->second = value;
+            ++colorIt;
+        }
+
+        ++colorIndex; // Increment the counter for the next iteration
     }
 
-    if (ImGui::SmallButton("Add new replacement"))
+    if (ImGui::SmallButton("Add new contact color entry"))
     {
-        canReplaceEntries.emplace_back();
+        p.contactColors.emplace("", "");
     }
 
-    ImGui::Text("Contact colors:"); // Contact colors
-    ImGui::Text("Contact sounds:"); // Contact sounds
-    ImGui::InputInt("Spread speed:", &spreadSpeed); // Spread speed
+    ImGui::Text("Contact sounds:");
+
+    auto soundIt = p.contactSounds.begin();
+    size_t soundIndex = 0;
+
+    for (; soundIt != p.contactSounds.end();)
+    {
+        std::string oldKey = soundIt->first;
+        std::string value = soundIt->second;
+
+        std::string keyID = "##skey" + std::to_string(soundIndex);
+        std::string valueID = "##svalue" + std::to_string(soundIndex);
+
+        ImGui::InputText(keyID.c_str(), &oldKey);
+        ImGui::SameLine();
+        ImGui::InputText(valueID.c_str(), &value);
+
+        if (oldKey != soundIt->first)
+        {
+            // Key has changed, remove the old entry and insert a new one
+            auto it = p.contactSounds.extract(soundIt++);
+            it.key() = oldKey;
+            p.contactSounds.insert(std::move(it));
+        }
+        else
+        {
+            // Update the value of the existing entry
+            soundIt->second = value;
+            ++soundIt;
+        }
+
+        ++soundIndex; // Increment the counter for the next iteration
+    }
+
+    if (ImGui::SmallButton("Add new contact sound entry"))
+    {
+        p.contactSounds.emplace("", "");
+    }
+
+    ImGui::InputInt("Spread speed:", &p.spreadSpeed);
 
     if (ImGui::Button("Save material to file"))
     {
-        nlohmann::json newMaterial;
-        newMaterial["name"] = nameBuffer;
-        newMaterial["type"] = 0;
-        // ...
+        SerializeParticle(p, MATERIAL_FILE_PATH);
     }
-
-    ImGui::End();
 }
 
 // Destroy ImGui and SDL related elements.
@@ -737,6 +826,30 @@ void Shutdown(SDL_Window* window, SDL_Renderer* renderer)
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+}
+
+// Render user interface.
+void OnImGuiRender()
+{
+    ImGui::Begin("Panel");
+
+    ImGui::BeginTabBar("tab_bar");
+
+    if (ImGui::BeginTabItem("Controls"))
+    {
+        OnImGuiRenderControls();
+        ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Custom material editor"))
+    {
+        OnImGuiRenderCustomMaterialsPanel();
+        ImGui::EndTabItem();
+    }
+
+    ImGui::EndTabBar();
+
+    ImGui::End();
 }
 
 int main(int argc, char* argv[])
@@ -752,15 +865,10 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    /*Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024);
-    sounds["bubbles"] = Mix_LoadWAV("./art/bubbles.wav");
-    sounds["splash"] = Mix_LoadWAV("./art/splash.wav");*/
-
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
 
-    std::vector<std::unique_ptr<Particle>> cells;
-
+    Grid cells;
     int width = std::floor(WINDOW_WIDTH / CELL_SIZE);
     int height = std::floor(WINDOW_HEIGHT / CELL_SIZE);
 
@@ -792,11 +900,10 @@ int main(int argc, char* argv[])
 
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
+
         ImGui::NewFrame();
 
-        OnImGuiRenderBrushDropDown();
-        OnImGuiRenderMaterialDropdown();
-        OnImGuiRenderCustomMaterialsPanel();
+        OnImGuiRender();
 
         ImGui::Render();
 
@@ -808,7 +915,6 @@ int main(int argc, char* argv[])
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
 
         SDL_RenderPresent(renderer);
-
         SDL_Delay(10);
     }
 
