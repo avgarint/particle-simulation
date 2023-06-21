@@ -255,7 +255,7 @@ void SerializeParticle(const CustomParticle& p, const std::string& savePath)
 
     // Write the updated JSON data back to the file with inline array formatting
     std::ofstream outFile(savePath);
-    outFile << existingData.dump(4) << std::endl;
+    outFile << existingData.dump(2) << std::endl;
     outFile.close();
 }
 
@@ -712,11 +712,19 @@ void OnImGuiRenderControls()
 void OnImGuiRenderCustomMaterialsPanel()
 {
     static CustomParticle p;
+    static float color[3];
 
     ImGui::InputText("Name:", &p.name);
     ImGui::InputInt("Type (1 = solid, 2 = liquid, 3 = gas):", &p.type);
     ImGui::InputFloat("Initial life time:", &p.initialLifeTime);
-    ImGui::ColorPicker3("Initial color:", p.initialColor);
+    
+    if (ImGui::ColorPicker3("Initial color:", color))
+    {
+        for (int i = 0; i < std::size(color); i++)
+        {
+            p.initialColor[i] = color[i] * 255;
+        }
+    }
 
     ImGui::Text("Spread rules");
     ImGui::Text("Can replace:");
