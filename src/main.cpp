@@ -1,6 +1,7 @@
 /****************************************************************************\
  * Pilot Alex, 2022-2023, All right reserved. Copyright (c) 2023.           *
  * Made by A.G. under the username of Pilot Alex.                           *
+ * C++17, Visuat Studio 2022.                                               *
 \****************************************************************************/
 
 #include <map>
@@ -25,12 +26,12 @@
 #include <SDL2/SDL_mixer.h>
 #undef main
 
-#define CELL_SIZE     10
-#define WINDOW_HEIGHT 800
-#define WINDOW_WIDTH  800
+constexpr int CELL_SIZE = 10;
+constexpr int WINDOW_HEIGHT = 800;
+constexpr int WINDOW_WIDTH = 800;
 
-#define MATERIAL_FILE_PATH "./materials.json"
-#define MATERIAL_NAME_NONE "none"
+constexpr std::string_view MATERIAL_NAME_NONE = "none";
+constexpr std::string_view MATERIAL_FILE_PATH = "./materials.json";
 
 // --------------------------------------------------------------------------------------------
 
@@ -51,27 +52,21 @@ enum BrushType
 
 // --------------------------------------------------------------------------------------------
 
-static constexpr const char* brushOptions[] = { "Small (1px)", "Medium (extent = 8)", "Big (extent = 16)" };
-static constexpr const char* materialOptions[] = { MATERIAL_NAME_NONE,
-                                                   "sand",
-                                                   "water",
-                                                   "lava",
-                                                   "acid",
-                                                   "toxicgas"};
+static std::vector<std::string> brushOptions = { "Small (1px)", "Medium (extent = 8)", "Big (extent = 16)" };
+static int selectedBrushOption = 0;
 
-static const char* selectedMaterialName = materialOptions[0];
-static const char* selectedBrushType = brushOptions[0];
+static std::vector<std::string> materialOptions = { std::string(MATERIAL_NAME_NONE) };
+static int selectedMaterialOption = 0;
 
 static bool mouseDown = false;
 
-std::map<std::string, Mix_Chunk*> sounds;
-
 static BrushType brush = BRUSH_TYPE_SMALL;
 
-nlohmann::json jsonData;
+nlohmann::json json;
 
 // --------------------------------------------------------------------------------------------
 
+// TODO: merge?
 struct SpreadRules
 {
     int spreadSpeed;
@@ -83,7 +78,7 @@ struct SpreadRules
 struct Material
 {
     int type = MATERIAL_TYPE_NONE;
-    std::string name = MATERIAL_NAME_NONE;
+    std::string name = std::string(MATERIAL_NAME_NONE);
     SDL_Color color = { 0, 0, 0, 0 };
 };
 
@@ -167,18 +162,27 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
 
     if (!file.is_open())
     {
-        std::cout << "Failed to open JSON file: " << jsonPath << std::endl;
+        std::cout << "Failed to open JSON file at: " << jsonPath << std::endl;
         return false;
     }
 
     try
     {
-        if (jsonData.is_null())
+        if (json.is_null())
         {
-            jsonData = nlohmann::json::parse(file);
+            json = nlohmann::json::parse(file);
+            
+            for (const auto& material : json)
+            {
+                std::string name = material["name"].get<std::string>();
+                if (name != std::string(MATERIAL_NAME_NONE))
+                {
+                    materialOptions.push_back(name);
+                }
+            }
         }
 
-        for (const auto& material : jsonData)
+        for (const auto& material : json)
         {
             if (material["name"] == p->material.name)
             {
@@ -205,7 +209,7 @@ bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
             }
         }
 
-        return false; // true?
+        return true;
     }
 
     catch (const std::exception& ex)
@@ -251,7 +255,7 @@ void SerializeParticle(const CustomParticle& p, const std::string& savePath)
 
     // Write the updated JSON data back to the file with inline array formatting
     std::ofstream outFile(savePath);
-    outFile << existingData.dump(2) << std::endl;
+    outFile << existingData.dump(4) << std::endl;
     outFile.close();
 }
 
@@ -298,11 +302,11 @@ bool InitSDL(SDL_Window*& window, SDL_Renderer*& renderer)
     }
 
     window = SDL_CreateWindow("Particle simulation",
-        SDL_WINDOWPOS_UNDEFINED,
-        SDL_WINDOWPOS_UNDEFINED,
-        WINDOW_WIDTH,
-        WINDOW_HEIGHT,
-        SDL_WINDOW_SHOWN);
+                               SDL_WINDOWPOS_UNDEFINED,
+                               SDL_WINDOWPOS_UNDEFINED,
+                               WINDOW_WIDTH,
+                               WINDOW_HEIGHT,
+                               SDL_WINDOW_SHOWN);
 
     if (!window)
     {
@@ -422,16 +426,16 @@ void RevealParticlesAt(const Grid& cells, int gridWidth, const SDL_Rect& bounds,
     int totalParticles = (xEnd - xStart + 1) * (yEnd - yStart + 1);
 
     // Percentage of particles to reveal in each iteration
-    float revealPercentage = 0.2;
+    double revealPercentage = 0.2;
     int particlesToReveal = static_cast<int>(totalParticles * revealPercentage);
 
-    int centerX = std::floor((xStart + xEnd) / 2);
-    int centerY = std::floor((yStart + yEnd) / 2);
+    int centerX = static_cast<int>(std::floor((xStart + xEnd) / 2));
+    int centerY = static_cast<int>(std::floor((yStart + yEnd) / 2));
 
     for (int i = 0; i < particlesToReveal; ++i)
     {
-        float angle = RandomFloat(0.0, 2.0 * M_PI);
-        float radius = RandomFloat(0.0, std::min(centerX - xStart, centerY - yStart));
+        float angle = RandomFloat(0.0f, 2.0f * M_PI);
+        float radius = RandomFloat(0.0f, std::min(centerX - xStart, centerY - yStart));
         int x = static_cast<int>(centerX + radius * std::cos(angle));
         int y = static_cast<int>(centerY + radius * std::sin(angle));
 
@@ -556,33 +560,29 @@ void UpdateGas(const Grid& cells, int gridWidth, int x, int y)
 // Updates the inputs related the the material selection.
 void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, int gridWidth, int gridHeight)
 {
-    if (event.type == SDL_MOUSEBUTTONDOWN)
+    if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
     {
-        if (event.button.button == SDL_BUTTON_LEFT)
-        {
-            mouseDown = true;
-        }
+        mouseDown = true;
     }
 
-    else if (event.type == SDL_MOUSEBUTTONUP)
+    else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT)
     {
-        if (event.button.button == SDL_BUTTON_LEFT)
-        {
-            mouseDown = false;
-        }
+        mouseDown = false;
     }
 
     if (mouseDown && !io.WantCaptureMouse)
     {
-        int mouseX, mouseY;
+        int mouseX;
+        int mouseY;
         SDL_GetMouseState(&mouseX, &mouseY);
+        std::string filePath(MATERIAL_FILE_PATH);
 
         switch (brush)
         {
         case BRUSH_TYPE_SMALL:
         {
             auto coords = MouseCoordinatesToXY(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY);
-            RevealParticleAt(cells, gridWidth, std::get<0>(coords), std::get<1>(coords), selectedMaterialName, MATERIAL_FILE_PATH);
+            RevealParticleAt(cells, gridWidth, std::get<0>(coords), std::get<1>(coords), materialOptions[selectedMaterialOption], filePath);
             break;
         }
 
@@ -591,7 +591,7 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, 
         {
             int brushSize = static_cast<std::underlying_type<BrushType>::type>(brush);
             SDL_Rect bounds = MouseCoordinatesToBounds(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY, brushSize);
-            RevealParticlesAt(cells, gridWidth, bounds, selectedMaterialName, MATERIAL_FILE_PATH);
+            RevealParticlesAt(cells, gridWidth, bounds, materialOptions[selectedMaterialOption], filePath);
             break;
         }
 
@@ -652,25 +652,27 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const Grid& cells, int gri
 // Renders a panel with the spawning controls (brush, size, material...)
 void OnImGuiRenderControls()
 {
-    if (ImGui::BeginCombo("Brush", selectedBrushType))
+    if (ImGui::BeginCombo("Brush", brushOptions[selectedBrushOption].c_str()))
     {
-        for (int i = 0; i < IM_ARRAYSIZE(brushOptions); i++)
+        for (int i = 0; i < brushOptions.size(); i++)
         {
-            bool isSelected = (selectedBrushType == brushOptions[i]);
+            bool isSelected = (selectedBrushOption == i);
 
-            if (ImGui::Selectable(brushOptions[i], isSelected))
+            if (ImGui::Selectable(brushOptions[i].c_str(), isSelected))
             {
-                selectedBrushType = brushOptions[i];
+                selectedBrushOption = i;
 
-                if (selectedBrushType == brushOptions[0])
+                if (selectedBrushOption == 0)
                 {
                     brush = BRUSH_TYPE_SMALL;
                 }
-                else if (selectedBrushType == brushOptions[1])
+
+                else if (selectedBrushOption == 1)
                 {
                     brush = BRUSH_TYPE_MEDIUM;
                 }
-                else if (selectedBrushType == brushOptions[2])
+
+                else if (selectedBrushOption == 2)
                 {
                     brush = BRUSH_TYPE_BIG;
                 }
@@ -685,15 +687,15 @@ void OnImGuiRenderControls()
         ImGui::EndCombo();
     }
 
-    if (ImGui::BeginCombo("Material", selectedMaterialName))
+    if (ImGui::BeginCombo("Material", materialOptions[selectedMaterialOption].c_str()))
     {
-        for (int i = 0; i < IM_ARRAYSIZE(materialOptions); i++)
+        for (int i = 0; i < materialOptions.size(); i++)
         {
-            bool isSelected = (selectedMaterialName == materialOptions[i]);
+            bool isSelected = (selectedMaterialOption == i);
 
-            if (ImGui::Selectable(materialOptions[i], isSelected))
+            if (ImGui::Selectable(materialOptions[i].c_str(), isSelected))
             {
-                selectedMaterialName = materialOptions[i];
+                selectedMaterialOption = i;
 
                 if (isSelected)
                 {
@@ -712,7 +714,7 @@ void OnImGuiRenderCustomMaterialsPanel()
     static CustomParticle p;
 
     ImGui::InputText("Name:", &p.name);
-    ImGui::InputInt("Type:", &p.type);
+    ImGui::InputInt("Type (1 = solid, 2 = liquid, 3 = gas):", &p.type);
     ImGui::InputFloat("Initial life time:", &p.initialLifeTime);
     ImGui::ColorPicker3("Initial color:", p.initialColor);
 
@@ -812,7 +814,7 @@ void OnImGuiRenderCustomMaterialsPanel()
 
     if (ImGui::Button("Save material to file"))
     {
-        SerializeParticle(p, MATERIAL_FILE_PATH);
+        SerializeParticle(p, std::string(MATERIAL_FILE_PATH));
     }
 }
 
@@ -869,8 +871,8 @@ int main(int argc, char* argv[])
     SDL_RenderClear(renderer);
 
     Grid cells;
-    int width = std::floor(WINDOW_WIDTH / CELL_SIZE);
-    int height = std::floor(WINDOW_HEIGHT / CELL_SIZE);
+    int width = static_cast<int>(std::floor(WINDOW_WIDTH / CELL_SIZE));
+    int height = static_cast<int>(std::floor(WINDOW_HEIGHT / CELL_SIZE));
 
     for (int i = 0; i < width * height; i++)
     {
