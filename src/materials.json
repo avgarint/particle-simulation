@@ -168,9 +168,7 @@
           166
         ]
       },
-      "contact_sounds": {
-        "water": "acid_bubbles.mp3"
-      },
+      "contact_sounds": {},
       "spread_speed": 3
     },
     "type": 2

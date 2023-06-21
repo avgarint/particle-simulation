@@ -6,6 +6,7 @@
 
 #include <map>
 #include <tuple>
+#include <array>
 #include <cmath>
 #include <string>
 #include <random>
@@ -16,9 +17,9 @@
 #include <iostream>
 
 #include <imgui.h>
+#include <imgui_stdlib.h> // ImGui with std::string
 #include "imgui_sdl_backend/imgui_impl_sdl2.h"
 #include "imgui_sdl_backend/imgui_impl_sdlrenderer2.h"
-#include <imgui_stdlib.h> // ImGui with std::string
 
 #include "json/json.hpp"
 
@@ -58,11 +59,7 @@ static int selectedBrushOption = 0;
 static std::vector<std::string> materialOptions = { std::string(MATERIAL_NAME_NONE) };
 static int selectedMaterialOption = 0;
 
-static bool mouseDown = false;
-
 static BrushType brush = BRUSH_TYPE_SMALL;
-
-nlohmann::json json;
 
 // --------------------------------------------------------------------------------------------
 
@@ -97,7 +94,7 @@ struct CustomParticle
     float initialLifeTime;
     float initialColor[3];
     std::vector<std::string> canReplace;
-    std::map<std::string, std::string> contactColors;
+    std::map<std::string, std::array<float, 3>> contactColors;
     std::map<std::string, std::string> contactSounds;
     int spreadSpeed;
 };
@@ -105,6 +102,8 @@ struct CustomParticle
 // --------------------------------------------------------------------------------------------
 
 typedef std::vector<std::unique_ptr<Particle>> Grid;
+
+static CustomParticle p;
 
 // --------------------------------------------------------------------------------------------
 
@@ -149,115 +148,43 @@ int GetCellIndex(int gridWidth, int x, int y)
 
 // --------------------------------------------------------------------------------------------
 
-// Loads or updates the material of the particle from the json file.
-bool LoadParticleMaterial(Particle* p, const std::string& jsonPath)
+// Opens and reads the json file located at savePath and returns it.
+nlohmann::json LoadMaterialJsonData(const std::string& savePath)
 {
-    if (!p)
-    {
-        std::cout << "Invalid particle pointer." << std::endl;
-        return false;
-    }
-
-    std::ifstream file(jsonPath);
+    std::ifstream file(savePath);
 
     if (!file.is_open())
     {
-        std::cout << "Failed to open JSON file at: " << jsonPath << std::endl;
-        return false;
+        std::cout << "Failed to open JSON file at: " << savePath << std::endl;
+        return nlohmann::json::value_t::null;
     }
 
     try
     {
-        if (json.is_null())
+        nlohmann::json data = nlohmann::json::parse(file);
+
+        // Build for material selection dropdown
+        for (const auto& material : data)
         {
-            json = nlohmann::json::parse(file);
-            
-            for (const auto& material : json)
+            std::string name = material["name"].get<std::string>();
+
+            if (std::find(materialOptions.begin(), materialOptions.end(), name) == materialOptions.end())
             {
-                std::string name = material["name"].get<std::string>();
-                if (name != std::string(MATERIAL_NAME_NONE))
-                {
-                    materialOptions.push_back(name);
-                }
+                materialOptions.push_back(name);
             }
         }
 
-        for (const auto& material : json)
-        {
-            if (material["name"] == p->material.name)
-            {
-                p->material.name = material["name"];
-                p->material.type = material["type"];
-                p->lifeTime = material["initial_life_time"];
-                p->material.color = { material["initial_color"][0], material["initial_color"][1], material["initial_color"][2] };
-
-                p->spreadRules.canReplace = material["spread_rules"]["can_replace"].get<std::vector<std::string>>();
-
-                const auto& contactColorsJson = material["spread_rules"]["contact_colors"];
-
-                for (auto it = contactColorsJson.begin(); it != contactColorsJson.end(); ++it)
-                {
-                    const std::string& key = it.key();
-                    const std::vector<float>& colorArray = it.value();
-                    SDL_Color color = { static_cast<Uint8>(colorArray[0]), static_cast<Uint8>(colorArray[1]), static_cast<Uint8>(colorArray[2]), 255 };
-                    p->spreadRules.contactColors[key] = color;
-                }
-
-                p->spreadRules.contactSounds = material["spread_rules"]["contact_sounds"].get<std::map<std::string, std::string>>();
-                p->spreadRules.spreadSpeed = material["spread_rules"]["spread_speed"];
-                return true;
-            }
-        }
-
-        return true;
+        return data;
     }
 
     catch (const std::exception& ex)
     {
         std::cout << "Failed to parse JSON: " << ex.what() << std::endl;
-        return false;
+        return nlohmann::json::value_t::null;
     }
 }
 
-// Writes to the .json file located at savePath the data held by the particle p.
-void SerializeParticle(const CustomParticle& p, const std::string& savePath)
-{
-    nlohmann::json newMaterial =
-    {
-            { "name", p.name },
-            { "type", p.type },
-            { "initial_life_time", p.initialLifeTime },
-            { "initial_color", p.initialColor },
-            { "spread_rules", {
-                { "can_replace", p.canReplace },
-                { "contact_colors", p.contactColors },
-                { "contact_sounds", p.contactSounds },
-                { "spread_speed", p.spreadSpeed }
-            }}
-    };
-
-    std::ifstream file(savePath);
-    nlohmann::json existingData;
-
-    if (file.good())
-    {
-        file >> existingData;
-        file.close();
-    }
-
-    if (!existingData.is_array())
-    {
-        existingData = nlohmann::json::array();
-    }
-
-    // Add the new material to the existing materials array
-    existingData.push_back(newMaterial);
-
-    // Write the updated JSON data back to the file with inline array formatting
-    std::ofstream outFile(savePath);
-    outFile << existingData.dump(2) << std::endl;
-    outFile.close();
-}
+// --------------------------------------------------------------------------------------------
 
 // Returns true if the particle p is allowed to spread and replace the material
 // named materialName.
@@ -352,7 +279,7 @@ bool InitImGui(SDL_Window* window, SDL_Renderer* renderer)
 // Returns a rect based on the cell located at x and y on the grid.
 SDL_Rect CellToRect(int x, int y, int cellSize)
 {
-    SDL_Rect ret{};
+    SDL_Rect ret;
     ret.x = x * cellSize;
     ret.y = y * cellSize;
     ret.w = cellSize;
@@ -404,19 +331,103 @@ std::tuple<int, int> MouseCoordinatesToXY(int gridWidth, int gridHeight, int cel
 
 // --------------------------------------------------------------------------------------------
 
+// Loads or updates the material of the particle from the json file.
+void LoadParticleMaterial(Particle* p, const nlohmann::json& data)
+{
+    if (!p)
+    {
+        std::cout << "Invalid particle pointer." << std::endl;
+        return;
+    }
+
+    for (const auto& material : data)
+    {
+        if (material["name"] == p->material.name)
+        {
+            p->material.name = material["name"];
+            p->material.type = material["type"];
+            p->lifeTime = material["initial_life_time"];
+            p->material.color = { material["initial_color"][0], material["initial_color"][1], material["initial_color"][2] };
+
+            p->spreadRules.canReplace = material["spread_rules"]["can_replace"].get<std::vector<std::string>>();
+
+            const auto& contactColorsJson = material["spread_rules"]["contact_colors"];
+
+            for (auto it = contactColorsJson.begin(); it != contactColorsJson.end(); ++it)
+            {
+                const std::string& key = it.key();
+                const std::vector<float>& colorArray = it.value();
+                SDL_Color color = { static_cast<Uint8>(colorArray[0]), static_cast<Uint8>(colorArray[1]), static_cast<Uint8>(colorArray[2]), 255 };
+                p->spreadRules.contactColors[key] = color;
+            }
+
+            p->spreadRules.contactSounds = material["spread_rules"]["contact_sounds"].get<std::map<std::string, std::string>>();
+            p->spreadRules.spreadSpeed = material["spread_rules"]["spread_speed"];
+        }
+    }
+}
+
+// Writes to the .json file located at savePath the data held by the particle p.
+void SerializeParticle(const CustomParticle& p, const std::string& savePath)
+{
+    nlohmann::json newMaterial =
+    {
+            { "name", p.name },
+            { "type", p.type },
+            { "initial_life_time", p.initialLifeTime },
+            { "initial_color", p.initialColor },
+            { "spread_rules", {
+                { "can_replace", p.canReplace },
+                { "contact_colors", p.contactColors },
+                { "contact_sounds", p.contactSounds },
+                { "spread_speed", p.spreadSpeed }
+            }}
+    };
+
+    std::ifstream file(savePath);
+    nlohmann::json existingData;
+
+    if (file.good())
+    {
+        file >> existingData;
+        file.close();
+    }
+
+    if (!existingData.is_array())
+    {
+        existingData = nlohmann::json::array();
+    }
+
+    // Add the new material to the existing materials array
+    existingData.push_back(newMaterial);
+
+    // Write the updated JSON data back to the file with inline array formatting
+    std::ofstream outFile(savePath);
+    outFile << existingData.dump(2) << std::endl;
+    outFile.close();
+}
+
 // Lights up a particle from the grid located at x and y.
-void RevealParticleAt(const Grid& cells, int gridWidth, int x, int y, const std::string& materialName, const std::string& jsonPath)
+void RevealParticleAt(const Grid& cells, int gridWidth, int x, int y, const std::string& materialName)
 {
     Particle* spawnParticle = GetParticleAt(cells, gridWidth, x, y);
 
     // Refresh material
     spawnParticle->material.name = materialName;
     spawnParticle->material.type = MATERIAL_TYPE_SOLID;
-    LoadParticleMaterial(spawnParticle, jsonPath);
+
+    static nlohmann::json data;
+
+    if (data.is_null())
+    {
+        data = LoadMaterialJsonData(std::string(MATERIAL_FILE_PATH));
+    }
+
+    LoadParticleMaterial(spawnParticle, data);
 }
 
 // Lights up particles from the grid located in the bounds.
-void RevealParticlesAt(const Grid& cells, int gridWidth, const SDL_Rect& bounds, const std::string& materialName, const std::string& jsonPath)
+void RevealParticlesAt(const Grid& cells, int gridWidth, const SDL_Rect& bounds, const std::string& materialName)
 {
     int xStart = bounds.x;
     int yStart = bounds.y;
@@ -443,7 +454,7 @@ void RevealParticlesAt(const Grid& cells, int gridWidth, const SDL_Rect& bounds,
         x = std::max(xStart, std::min(x, xEnd));
         y = std::max(yStart, std::min(y, yEnd));
 
-        RevealParticleAt(cells, gridWidth, x, y, materialName, jsonPath);
+        RevealParticleAt(cells, gridWidth, x, y, materialName);
     }
 }
 
@@ -560,11 +571,12 @@ void UpdateGas(const Grid& cells, int gridWidth, int x, int y)
 // Updates the inputs related the the material selection.
 void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, int gridWidth, int gridHeight)
 {
+    static bool mouseDown = false;
+
     if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
     {
         mouseDown = true;
     }
-
     else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT)
     {
         mouseDown = false;
@@ -582,19 +594,17 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, 
         case BRUSH_TYPE_SMALL:
         {
             auto coords = MouseCoordinatesToXY(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY);
-            RevealParticleAt(cells, gridWidth, std::get<0>(coords), std::get<1>(coords), materialOptions[selectedMaterialOption], filePath);
+            RevealParticleAt(cells, gridWidth, std::get<0>(coords), std::get<1>(coords), materialOptions[selectedMaterialOption]);
             break;
         }
-
         case BRUSH_TYPE_MEDIUM:
         case BRUSH_TYPE_BIG:
         {
             int brushSize = static_cast<std::underlying_type<BrushType>::type>(brush);
             SDL_Rect bounds = MouseCoordinatesToBounds(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY, brushSize);
-            RevealParticlesAt(cells, gridWidth, bounds, materialOptions[selectedMaterialOption], filePath);
+            RevealParticlesAt(cells, gridWidth, bounds, materialOptions[selectedMaterialOption]);
             break;
         }
-
         default:
             break;
         }
@@ -649,8 +659,8 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const Grid& cells, int gri
     }
 }
 
-// Renders a panel with the spawning controls (brush, size, material...)
-void OnImGuiRenderControls()
+// Renders the UI related to the brush type selection.
+void RenderBrushSelectionDropdown()
 {
     if (ImGui::BeginCombo("Brush", brushOptions[selectedBrushOption].c_str()))
     {
@@ -662,19 +672,22 @@ void OnImGuiRenderControls()
             {
                 selectedBrushOption = i;
 
-                if (selectedBrushOption == 0)
+                switch (selectedBrushOption)
                 {
+                case 0:
                     brush = BRUSH_TYPE_SMALL;
-                }
+                    break;
 
-                else if (selectedBrushOption == 1)
-                {
+                case 1:
                     brush = BRUSH_TYPE_MEDIUM;
-                }
+                    break;
 
-                else if (selectedBrushOption == 2)
-                {
+                case 2:
                     brush = BRUSH_TYPE_BIG;
+                    break;
+
+                default:
+                    break;
                 }
 
                 if (isSelected)
@@ -686,7 +699,11 @@ void OnImGuiRenderControls()
 
         ImGui::EndCombo();
     }
+}
 
+// Renders the UI related to the material selection.
+void RenderMaterialSelectionDropdown()
+{
     if (ImGui::BeginCombo("Material", materialOptions[selectedMaterialOption].c_str()))
     {
         for (int i = 0; i < materialOptions.size(); i++)
@@ -708,26 +725,26 @@ void OnImGuiRenderControls()
     }
 }
 
-// Renders a panel which can help the user to create any type of materials.
-void OnImGuiRenderCustomMaterialsPanel()
+// Render the UI related to the static elements of the custom particle creation such
+// as the name, type...
+void RenderStaticSection()
 {
-    static CustomParticle p;
-    static float color[3];
+    static float initialColor[3];
 
-    ImGui::InputText("Name:", &p.name);
-    ImGui::InputInt("Type (1 = solid, 2 = liquid, 3 = gas):", &p.type);
-    ImGui::InputFloat("Initial life time:", &p.initialLifeTime);
-    
-    if (ImGui::ColorPicker3("Initial color:", color))
+    ImGui::InputText("Name:", &p.name); // Name
+    ImGui::InputInt("Type (1 = solid, 2 = liquid, 3 = gas):", &p.type); // Type
+    ImGui::InputFloat("Initial life time:", &p.initialLifeTime); // Life time
+
+    if (ImGui::ColorPicker3("Initial color:", initialColor))
     {
-        for (int i = 0; i < std::size(color); i++)
+        for (int i = 0; i < std::size(initialColor); i++)
         {
-            p.initialColor[i] = color[i] * 255;
+            p.initialColor[i] = initialColor[i] * 255;
         }
     }
 
     ImGui::Text("Spread rules");
-    ImGui::Text("Can replace:");
+    ImGui::Text("Can replace:"); // Can replace
 
     for (int i = 0; i < p.canReplace.size(); i++)
     {
@@ -740,22 +757,36 @@ void OnImGuiRenderCustomMaterialsPanel()
         p.canReplace.emplace_back();
     }
 
+    ImGui::InputInt("Spread speed:", &p.spreadSpeed); // Spread speed
+
+    if (ImGui::Button("Save material to file"))
+    {
+        SerializeParticle(p, std::string(MATERIAL_FILE_PATH));
+    }
+}
+
+// Renders the UI related to the contact color of the custom particle.
+void RenderContactColorsSection()
+{
     ImGui::Text("Contact colors:");
 
     auto colorIt = p.contactColors.begin();
     size_t colorIndex = 0;
 
+    static float color[3];
+
     for (; colorIt != p.contactColors.end();)
     {
         std::string oldKey = colorIt->first;
-        std::string value = colorIt->second;
+        std::array<float, 3> value = colorIt->second;
 
         std::string keyID = "##ckey" + std::to_string(colorIndex);
         std::string valueID = "##cvalue" + std::to_string(colorIndex);
 
+        ImGui::PushItemWidth(250.0f);
         ImGui::InputText(keyID.c_str(), &oldKey);
-        ImGui::SameLine();
-        ImGui::InputText(valueID.c_str(), &value);
+        ImGui::PushItemWidth(250.0f);
+        ImGui::ColorPicker3(valueID.c_str(), color);
 
         if (oldKey != colorIt->first)
         {
@@ -764,6 +795,7 @@ void OnImGuiRenderCustomMaterialsPanel()
             it.key() = oldKey;
             p.contactColors.insert(std::move(it));
         }
+
         else
         {
             // Update the value of the existing entry
@@ -773,12 +805,11 @@ void OnImGuiRenderCustomMaterialsPanel()
 
         ++colorIndex; // Increment the counter for the next iteration
     }
+}
 
-    if (ImGui::SmallButton("Add new contact color entry"))
-    {
-        p.contactColors.emplace("", "");
-    }
-
+// Renders the UI related to the contact sounds of the custom particle.
+void RenderContactSoundsSection()
+{
     ImGui::Text("Contact sounds:");
 
     auto soundIt = p.contactSounds.begin();
@@ -817,13 +848,39 @@ void OnImGuiRenderCustomMaterialsPanel()
     {
         p.contactSounds.emplace("", "");
     }
+}
 
-    ImGui::InputInt("Spread speed:", &p.spreadSpeed);
+// Renders the entire UI in one same call.
+void OnImGuiRenderAll()
+{
+    ImGui::Begin("Panel");
 
-    if (ImGui::Button("Save material to file"))
+    ImGui::BeginTabBar("tab_bar");
+
+    if (ImGui::BeginTabItem("Controls"))
     {
-        SerializeParticle(p, std::string(MATERIAL_FILE_PATH));
+        RenderBrushSelectionDropdown();
+        RenderMaterialSelectionDropdown();
+        ImGui::EndTabItem();
     }
+
+    if (ImGui::BeginTabItem("Custom material editor"))
+    {
+        RenderStaticSection();
+        RenderContactColorsSection();
+        RenderContactSoundsSection();
+
+        if (ImGui::SmallButton("Add new contact color entry"))
+        {
+            p.contactColors.emplace("", std::array<float, 3>{0, 0, 0});
+        }
+
+        ImGui::EndTabItem();
+    }
+
+    ImGui::EndTabBar();
+
+    ImGui::End();
 }
 
 // Destroy ImGui and SDL related elements.
@@ -838,29 +895,7 @@ void Shutdown(SDL_Window* window, SDL_Renderer* renderer)
     SDL_Quit();
 }
 
-// Render user interface.
-void OnImGuiRender()
-{
-    ImGui::Begin("Panel");
-
-    ImGui::BeginTabBar("tab_bar");
-
-    if (ImGui::BeginTabItem("Controls"))
-    {
-        OnImGuiRenderControls();
-        ImGui::EndTabItem();
-    }
-
-    if (ImGui::BeginTabItem("Custom material editor"))
-    {
-        OnImGuiRenderCustomMaterialsPanel();
-        ImGui::EndTabItem();
-    }
-
-    ImGui::EndTabBar();
-
-    ImGui::End();
-}
+// --------------------------------------------------------------------------------------------
 
 int main(int argc, char* argv[])
 {
@@ -913,7 +948,7 @@ int main(int argc, char* argv[])
 
         ImGui::NewFrame();
 
-        OnImGuiRender();
+        OnImGuiRenderAll();
 
         ImGui::Render();
 
