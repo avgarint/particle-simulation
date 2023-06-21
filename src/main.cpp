@@ -758,11 +758,6 @@ void RenderStaticSection()
     }
 
     ImGui::InputInt("Spread speed:", &p.spreadSpeed); // Spread speed
-
-    if (ImGui::Button("Save material to file"))
-    {
-        SerializeParticle(p, std::string(MATERIAL_FILE_PATH));
-    }
 }
 
 // Renders the UI related to the contact color of the custom particle.
@@ -804,6 +799,11 @@ void RenderContactColorsSection()
         }
 
         ++colorIndex; // Increment the counter for the next iteration
+    }
+
+    if (ImGui::SmallButton("Add new contact color entry"))
+    {
+        p.contactColors.emplace("", std::array<float, 3>{0, 0, 0});
     }
 }
 
@@ -870,9 +870,9 @@ void OnImGuiRenderAll()
         RenderContactColorsSection();
         RenderContactSoundsSection();
 
-        if (ImGui::SmallButton("Add new contact color entry"))
+        if (ImGui::Button("Save material to file"))
         {
-            p.contactColors.emplace("", std::array<float, 3>{0, 0, 0});
+            SerializeParticle(p, std::string(MATERIAL_FILE_PATH));
         }
 
         ImGui::EndTabItem();
