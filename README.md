@@ -1,4 +1,4 @@
-# particle-simulation-cpp
+<h1 align="center">particle-simulation-cpp</h1>
 
 ![GitHub last commit](https://img.shields.io/github/last-commit/alexandreaero/particle-simulation-cpp)
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/alexandreaero/particle-simulation-cpp)
