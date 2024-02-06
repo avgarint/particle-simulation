@@ -1,7 +1,7 @@
 /****************************************************************************\
  * Pilot Alex, 2022-2023, All right reserved. Copyright (c) 2023.           *
  * Made by A.G. under the username of Pilot Alex.                           *
- * C++17, Visuat Studio 2022.                                               *
+ * C++17, Visual Studio 2022.                                               *
 \****************************************************************************/
 
 #include <map>
@@ -36,15 +36,15 @@ constexpr std::string_view MATERIAL_FILE_PATH = "./materials.json";
 
 // --------------------------------------------------------------------------------------------
 
-enum MaterialType
+enum MaterialType // TODO: should be enum class
 {
-    MATERIAL_TYPE_NONE   = 0, // Used to represent an empty cell/particle
-    MATERIAL_TYPE_SOLID  = 1, // Solid materials such as sand, salt and more
-    MATERIAL_TYPE_LIQUID = 2, // Liquid materials such as water, lava and more
-    MATERIAL_TYPE_GAS    = 3  // Gas materials such as toxic gas and more
+    MATERIAL_TYPE_NONE,   // Used to represent an empty cell/particle
+    MATERIAL_TYPE_SOLID,  // Solid materials such as sand, salt and more
+    MATERIAL_TYPE_LIQUID, // Liquid materials such as water, lava and more
+    MATERIAL_TYPE_GAS     // Gas materials such as toxic gas and more
 };
 
-enum BrushType
+enum BrushType // TODO: should be enum class
 {
     BRUSH_TYPE_SMALL  = 1, // Reveal a single particle at once
     BRUSH_TYPE_MEDIUM = 8, // Reveal particles in located in a rect with an extent of 8
@@ -103,7 +103,7 @@ struct CustomParticle
 
 typedef std::vector<std::unique_ptr<Particle>> Grid;
 
-static CustomParticle p;
+static CustomParticle p; // TODO: what's this?
 
 // --------------------------------------------------------------------------------------------
 
@@ -149,7 +149,7 @@ int GetCellIndex(int gridWidth, int x, int y)
 // --------------------------------------------------------------------------------------------
 
 // Opens and reads the json file located at savePath and returns it.
-nlohmann::json LoadMaterialJsonData(const std::string& savePath)
+nlohmann::json LoadMaterialJsonData(const std::string& savePath) // TODO: should be std::filesystem::path if C++17 or >
 {
     std::ifstream file(savePath);
 
@@ -186,8 +186,7 @@ nlohmann::json LoadMaterialJsonData(const std::string& savePath)
 
 // --------------------------------------------------------------------------------------------
 
-// Returns true if the particle p is allowed to spread and replace the material
-// named materialName.
+// Returns true if the particle p is allowed to spread and replace the material named materialName.
 bool ParticleCanSpreadTo(Particle* p, const std::string& materialName)
 {
     if (p)
