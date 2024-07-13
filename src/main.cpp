@@ -12,16 +12,11 @@
 #include <random>
 #include <vector>
 #include <memory>
-#include <sstream>
-#include <fstream>
-#include <iostream>
 
 #include <imgui.h>
 #include <imgui_stdlib.h> // ImGui with std::string
 #include "imgui_sdl_backend/imgui_impl_sdl2.h"
 #include "imgui_sdl_backend/imgui_impl_sdlrenderer2.h"
-
-#include "json/json.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_mixer.h>
@@ -32,23 +27,22 @@ constexpr int WINDOW_HEIGHT = 800;
 constexpr int WINDOW_WIDTH = 800;
 
 constexpr std::string_view MATERIAL_NAME_NONE = "none";
-constexpr std::string_view MATERIAL_FILE_PATH = "./materials.json";
 
 // --------------------------------------------------------------------------------------------
 
-enum MaterialType // TODO: should be enum class
+enum class MaterialType
 {
-    MATERIAL_TYPE_NONE,   // Used to represent an empty cell/particle
-    MATERIAL_TYPE_SOLID,  // Solid materials such as sand, salt and more
-    MATERIAL_TYPE_LIQUID, // Liquid materials such as water, lava and more
-    MATERIAL_TYPE_GAS     // Gas materials such as toxic gas and more
+    None,   // Used to represent an empty cell/particle
+    Solid,  // Solid materials such as sand, salt and more
+    Liquid, // Liquid materials such as water, lava and more
+    Gas     // Gas materials such as toxic gas and more
 };
 
-enum BrushType // TODO: should be enum class
+enum class BrushType
 {
-    BRUSH_TYPE_SMALL  = 1, // Reveal a single particle at once
-    BRUSH_TYPE_MEDIUM = 8, // Reveal particles in located in a rect with an extent of 8
-    BRUSH_TYPE_BIG    = 16 // Reveal particles in located in a rect with an extent of 16
+    Small  = 1, // Reveal a single particle at once
+    Medium = 8, // Reveal particles in located in a rect with an extent of 8
+    Big    = 16 // Reveal particles in located in a rect with an extent of 16
 };
 
 // --------------------------------------------------------------------------------------------
@@ -59,7 +53,7 @@ static int selectedBrushOption = 0;
 static std::vector<std::string> materialOptions = { std::string(MATERIAL_NAME_NONE) };
 static int selectedMaterialOption = 0;
 
-static BrushType brush = BRUSH_TYPE_SMALL;
+static BrushType brush = Small;
 
 // --------------------------------------------------------------------------------------------
 
@@ -74,7 +68,7 @@ struct SpreadRules
 
 struct Material
 {
-    int type = MATERIAL_TYPE_NONE;
+    int type = None;
     std::string name = std::string(MATERIAL_NAME_NONE);
     SDL_Color color = { 0, 0, 0, 0 };
 };
@@ -87,23 +81,7 @@ struct Particle
     Material material;
 };
 
-struct CustomParticle
-{
-    std::string name;
-    int type;
-    float initialLifeTime;
-    float initialColor[3];
-    std::vector<std::string> canReplace;
-    std::map<std::string, std::array<float, 3>> contactColors;
-    std::map<std::string, std::string> contactSounds;
-    int spreadSpeed;
-};
-
-// --------------------------------------------------------------------------------------------
-
-typedef std::vector<std::unique_ptr<Particle>> Grid;
-
-static CustomParticle p; // TODO: what's this?
+using Grid =  std::vector<std::unique_ptr<Particle>>;
 
 // --------------------------------------------------------------------------------------------
 
@@ -144,44 +122,6 @@ SDL_Color GetParticleContactColor(Particle* p, const std::string& materialName)
 int GetCellIndex(int gridWidth, int x, int y)
 {
     return y * gridWidth + x;
-}
-
-// --------------------------------------------------------------------------------------------
-
-// Opens and reads the json file located at savePath and returns it.
-nlohmann::json LoadMaterialJsonData(const std::string& savePath) // TODO: should be std::filesystem::path if C++17 or >
-{
-    std::ifstream file(savePath);
-
-    if (!file.is_open())
-    {
-        std::cout << "Failed to open JSON file at: " << savePath << std::endl;
-        return nlohmann::json::value_t::null;
-    }
-
-    try
-    {
-        nlohmann::json data = nlohmann::json::parse(file);
-
-        // Build for material selection dropdown
-        for (const auto& material : data)
-        {
-            std::string name = material["name"].get<std::string>();
-
-            if (std::find(materialOptions.begin(), materialOptions.end(), name) == materialOptions.end())
-            {
-                materialOptions.push_back(name);
-            }
-        }
-
-        return data;
-    }
-
-    catch (const std::exception& ex)
-    {
-        std::cout << "Failed to parse JSON: " << ex.what() << std::endl;
-        return nlohmann::json::value_t::null;
-    }
 }
 
 // --------------------------------------------------------------------------------------------
@@ -330,82 +270,6 @@ std::tuple<int, int> MouseCoordinatesToXY(int gridWidth, int gridHeight, int cel
 
 // --------------------------------------------------------------------------------------------
 
-// Loads or updates the material of the particle from the json file.
-void LoadParticleMaterial(Particle* p, const nlohmann::json& data)
-{
-    if (!p)
-    {
-        std::cout << "Invalid particle pointer." << std::endl;
-        return;
-    }
-
-    for (const auto& material : data)
-    {
-        if (material["name"] == p->material.name)
-        {
-            p->material.name = material["name"];
-            p->material.type = material["type"];
-            p->lifeTime = material["initial_life_time"];
-            p->material.color = { material["initial_color"][0], material["initial_color"][1], material["initial_color"][2] };
-
-            p->spreadRules.canReplace = material["spread_rules"]["can_replace"].get<std::vector<std::string>>();
-
-            const auto& contactColorsJson = material["spread_rules"]["contact_colors"];
-
-            for (auto it = contactColorsJson.begin(); it != contactColorsJson.end(); ++it)
-            {
-                const std::string& key = it.key();
-                const std::vector<float>& colorArray = it.value();
-                SDL_Color color = { static_cast<Uint8>(colorArray[0]), static_cast<Uint8>(colorArray[1]), static_cast<Uint8>(colorArray[2]), 255 };
-                p->spreadRules.contactColors[key] = color;
-            }
-
-            p->spreadRules.contactSounds = material["spread_rules"]["contact_sounds"].get<std::map<std::string, std::string>>();
-            p->spreadRules.spreadSpeed = material["spread_rules"]["spread_speed"];
-        }
-    }
-}
-
-// Writes to the .json file located at savePath the data held by the particle p.
-void SerializeParticle(const CustomParticle& p, const std::string& savePath)
-{
-    nlohmann::json newMaterial =
-    {
-            { "name", p.name },
-            { "type", p.type },
-            { "initial_life_time", p.initialLifeTime },
-            { "initial_color", p.initialColor },
-            { "spread_rules", {
-                { "can_replace", p.canReplace },
-                { "contact_colors", p.contactColors },
-                { "contact_sounds", p.contactSounds },
-                { "spread_speed", p.spreadSpeed }
-            }}
-    };
-
-    std::ifstream file(savePath);
-    nlohmann::json existingData;
-
-    if (file.good())
-    {
-        file >> existingData;
-        file.close();
-    }
-
-    if (!existingData.is_array())
-    {
-        existingData = nlohmann::json::array();
-    }
-
-    // Add the new material to the existing materials array
-    existingData.push_back(newMaterial);
-
-    // Write the updated JSON data back to the file with inline array formatting
-    std::ofstream outFile(savePath);
-    outFile << existingData.dump(2) << std::endl;
-    outFile.close();
-}
-
 // Lights up a particle from the grid located at x and y.
 void RevealParticleAt(const Grid& cells, int gridWidth, int x, int y, const std::string& materialName)
 {
@@ -413,16 +277,7 @@ void RevealParticleAt(const Grid& cells, int gridWidth, int x, int y, const std:
 
     // Refresh material
     spawnParticle->material.name = materialName;
-    spawnParticle->material.type = MATERIAL_TYPE_SOLID;
-
-    static nlohmann::json data;
-
-    if (data.is_null())
-    {
-        data = LoadMaterialJsonData(std::string(MATERIAL_FILE_PATH));
-    }
-
-    LoadParticleMaterial(spawnParticle, data);
+    spawnParticle->material.type = Solid;
 }
 
 // Lights up particles from the grid located in the bounds.
@@ -590,14 +445,14 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, 
 
         switch (brush)
         {
-        case BRUSH_TYPE_SMALL:
+        case Small:
         {
             auto coords = MouseCoordinatesToXY(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY);
             RevealParticleAt(cells, gridWidth, std::get<0>(coords), std::get<1>(coords), materialOptions[selectedMaterialOption]);
             break;
         }
-        case BRUSH_TYPE_MEDIUM:
-        case BRUSH_TYPE_BIG:
+        case Medium:
+        case Big:
         {
             int brushSize = static_cast<std::underlying_type<BrushType>::type>(brush);
             SDL_Rect bounds = MouseCoordinatesToBounds(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY, brushSize);
@@ -621,18 +476,18 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const Grid& cells, int gri
 
             switch (matType)
             {
-            case MATERIAL_TYPE_NONE:
+            case None:
                 break;
 
-            case MATERIAL_TYPE_SOLID:
+            case Solid:
                 UpdateSolid(cells, gridWidth, x, y);
                 break;
 
-            case MATERIAL_TYPE_LIQUID:
+            case Liquid:
                 UpdateLiquid(cells, gridWidth, x, y);
                 break;
 
-            case MATERIAL_TYPE_GAS:
+            case Gas:
                 UpdateGas(cells, gridWidth, x, y);
                 break;
 
@@ -674,15 +529,15 @@ void RenderBrushSelectionDropdown()
                 switch (selectedBrushOption)
                 {
                 case 0:
-                    brush = BRUSH_TYPE_SMALL;
+                    brush = Small;
                     break;
 
                 case 1:
-                    brush = BRUSH_TYPE_MEDIUM;
+                    brush = Medium;
                     break;
 
                 case 2:
-                    brush = BRUSH_TYPE_BIG;
+                    brush = Big;
                     break;
 
                 default:
@@ -759,96 +614,6 @@ void RenderStaticSection()
     ImGui::InputInt("Spread speed:", &p.spreadSpeed); // Spread speed
 }
 
-// Renders the UI related to the contact color of the custom particle.
-void RenderContactColorsSection()
-{
-    ImGui::Text("Contact colors:");
-
-    auto colorIt = p.contactColors.begin();
-    size_t colorIndex = 0;
-
-    static float color[3];
-
-    for (; colorIt != p.contactColors.end();)
-    {
-        std::string oldKey = colorIt->first;
-        std::array<float, 3> value = colorIt->second;
-
-        std::string keyID = "##ckey" + std::to_string(colorIndex);
-        std::string valueID = "##cvalue" + std::to_string(colorIndex);
-
-        ImGui::PushItemWidth(250.0f);
-        ImGui::InputText(keyID.c_str(), &oldKey);
-        ImGui::PushItemWidth(250.0f);
-        ImGui::ColorPicker3(valueID.c_str(), color);
-
-        if (oldKey != colorIt->first)
-        {
-            // Key has changed, remove the old entry and insert a new one
-            auto it = p.contactColors.extract(colorIt++);
-            it.key() = oldKey;
-            p.contactColors.insert(std::move(it));
-        }
-
-        else
-        {
-            // Update the value of the existing entry
-            colorIt->second = value;
-            ++colorIt;
-        }
-
-        ++colorIndex; // Increment the counter for the next iteration
-    }
-
-    if (ImGui::SmallButton("Add new contact color entry"))
-    {
-        p.contactColors.emplace("", std::array<float, 3>{0, 0, 0});
-    }
-}
-
-// Renders the UI related to the contact sounds of the custom particle.
-void RenderContactSoundsSection()
-{
-    ImGui::Text("Contact sounds:");
-
-    auto soundIt = p.contactSounds.begin();
-    size_t soundIndex = 0;
-
-    for (; soundIt != p.contactSounds.end();)
-    {
-        std::string oldKey = soundIt->first;
-        std::string value = soundIt->second;
-
-        std::string keyID = "##skey" + std::to_string(soundIndex);
-        std::string valueID = "##svalue" + std::to_string(soundIndex);
-
-        ImGui::InputText(keyID.c_str(), &oldKey);
-        ImGui::SameLine();
-        ImGui::InputText(valueID.c_str(), &value);
-
-        if (oldKey != soundIt->first)
-        {
-            // Key has changed, remove the old entry and insert a new one
-            auto it = p.contactSounds.extract(soundIt++);
-            it.key() = oldKey;
-            p.contactSounds.insert(std::move(it));
-        }
-        else
-        {
-            // Update the value of the existing entry
-            soundIt->second = value;
-            ++soundIt;
-        }
-
-        ++soundIndex; // Increment the counter for the next iteration
-    }
-
-    if (ImGui::SmallButton("Add new contact sound entry"))
-    {
-        p.contactSounds.emplace("", "");
-    }
-}
-
 // Renders the entire UI in one same call.
 void OnImGuiRenderAll()
 {
@@ -921,7 +686,7 @@ int main(int argc, char* argv[])
         std::unique_ptr<Particle> newCell = std::make_unique<Particle>();
 
         newCell->material.name = MATERIAL_NAME_NONE;
-        newCell->material.type = MATERIAL_TYPE_NONE;
+        newCell->material.type = None;
         cells.push_back(std::move(newCell));
     }
 
