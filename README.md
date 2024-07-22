@@ -10,4 +10,3 @@ A C++ project that simulates the motion of different materials such as sand, wat
 - ``imgui``: [Github repository](https://github.com/ocornut/imgui)
 - ``SDL2``: [Website](https://www.libsdl.org/) or [Github repository](https://github.com/libsdl-org/SDL)
 - ``SDL2 mixer``: [Website](https://www.libsdl.org/projects/mixer/) or [Github repository](https://github.com/libsdl-org/SDL_mixer)
-- ``nlohmann json``: [Github repository](https://github.com/nlohmann/json)
