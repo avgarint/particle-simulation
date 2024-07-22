@@ -1,17 +1,15 @@
 /****************************************************************************\
- * Pilot Alex, 2022-2023, All right reserved. Copyright (c) 2023.           *
+ * Pilot Alex, 2022-2024, All right reserved. Copyright (c) 2023.           *
  * Made by A.G. under the username of Pilot Alex.                           *
  * C++17, Visual Studio 2022.                                               *
 \****************************************************************************/
 
 #include <map>
-#include <tuple>
-#include <array>
 #include <cmath>
 #include <string>
 #include <random>
 #include <vector>
-#include <memory>
+#include <iostream>
 
 #include <imgui.h>
 #include <imgui_stdlib.h> // ImGui with std::string
@@ -20,13 +18,12 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_mixer.h>
+
 #undef main
 
 constexpr int CELL_SIZE = 10;
 constexpr int WINDOW_HEIGHT = 800;
 constexpr int WINDOW_WIDTH = 800;
-
-constexpr std::string_view MATERIAL_NAME_NONE = "none";
 
 // --------------------------------------------------------------------------------------------
 
@@ -45,49 +42,43 @@ enum class BrushType
     Big    = 16 // Reveal particles in located in a rect with an extent of 16
 };
 
-// --------------------------------------------------------------------------------------------
-
-static std::vector<std::string> brushOptions = { "Small (1px)", "Medium (extent = 8)", "Big (extent = 16)" };
-static int selectedBrushOption = 0;
-
-static std::vector<std::string> materialOptions = { std::string(MATERIAL_NAME_NONE) };
-static int selectedMaterialOption = 0;
-
-static BrushType brush = Small;
+static BrushType selectedBrush = BrushType::Small;
+static MaterialType selectedMaterial = MaterialType::Solid;
 
 // --------------------------------------------------------------------------------------------
 
-// TODO: merge?
 struct SpreadRules
 {
     int spreadSpeed;
-    std::vector<std::string> canReplace;
-    std::map<std::string, SDL_Color> contactColors;
-    std::map<std::string, std::string> contactSounds;
-};
-
-struct Material
-{
-    int type = None;
-    std::string name = std::string(MATERIAL_NAME_NONE);
-    SDL_Color color = { 0, 0, 0, 0 };
+    std::vector<MaterialType> canReplace;
+    std::map<MaterialType, SDL_Color> contactColors;
+    std::map<MaterialType, std::string> contactSounds;
 };
 
 struct Particle
 {
-    float lifeTime = -1.0f;
-    bool hasBeenUpdatedThisFrame = false;
+    float lifeTime;
+    bool hasBeenUpdatedThisFrame;
     SpreadRules spreadRules;
-    Material material;
+    MaterialType materialType;
+
+    Particle() = delete;
+    Particle(const SpreadRules& spreadRules, MaterialType materialType)
+        : lifeTime(-1.0f)
+        , hasBeenUpdatedThisFrame(false)
+        , spreadRules(spreadRules)
+        , materialType(materialType)
+    {
+    }
 };
 
-using Grid =  std::vector<std::unique_ptr<Particle>>;
+using Grid = std::vector<Particle>;
 
 // --------------------------------------------------------------------------------------------
 
-std::default_random_engine rng;
-std::random_device rd;
-std::mt19937 gen(rd());
+static std::default_random_engine rng;
+static std::random_device rd;
+static std::mt19937 gen(rd());
 
 // Function to generate a random float between min and max (inclusive)
 float RandomFloat(float min, float max)
@@ -99,18 +90,15 @@ float RandomFloat(float min, float max)
 // --------------------------------------------------------------------------------------------
 
 // Returns a new rgb color as an SDL_Color struct that the particle p should
-// take when in collides with the material named materialName.
-SDL_Color GetParticleContactColor(Particle* p, const std::string& materialName)
+// take when in collides with the material with type.
+SDL_Color GetParticleColorOnCollision(const Particle& p, const Particle& target)
 {
-    if (p)
-    {
-        const auto& contactColors = p->spreadRules.contactColors;
+    const auto& contactColors = p.spreadRules.contactColors;
 
-        auto it = contactColors.find(materialName);
-        if (it != contactColors.end())
-        {
-            return it->second;
-        }
+    auto it = contactColors.find(target.materialType);
+    if (it != contactColors.end())
+    {
+        return it->second;
     }
 
     return SDL_Color{ 0, 0, 0, 255 };
@@ -126,20 +114,17 @@ int GetCellIndex(int gridWidth, int x, int y)
 
 // --------------------------------------------------------------------------------------------
 
-// Returns true if the particle p is allowed to spread and replace the material named materialName.
-bool ParticleCanSpreadTo(Particle* p, const std::string& materialName)
+// Returns true if the particle p is allowed to spread and replace the material type.
+bool ParticleCanSpreadTo(const Particle& p, const Particle& target)
 {
-    if (p)
+    const auto& spreadRules = p.spreadRules;
+    const auto& canReplace = spreadRules.canReplace;
+
+    auto it = std::find(canReplace.begin(), canReplace.end(), target.materialType);
+
+    if (it != canReplace.end())
     {
-        const SpreadRules& spreadRules = p->spreadRules;
-        const std::vector<std::string>& canReplace = spreadRules.canReplace;
-
-        auto it = std::find(canReplace.begin(), canReplace.end(), materialName);
-
-        if (it != canReplace.end())
-        {
-            return true;
-        }
+        return true;
     }
 
     return false;
@@ -149,13 +134,13 @@ bool ParticleCanSpreadTo(Particle* p, const std::string& materialName)
 bool CellIsEmpty(const Grid& cells, int gridWidth, int x, int y)
 {
     int index = GetCellIndex(x, y, gridWidth);
-    return cells[index]->material.name == MATERIAL_NAME_NONE;
+    return cells[index].materialType == MaterialType::None;
 }
 
 // Returns wether the cell located at x and y on the grid is empty or not.
-bool ParticleIsEmpty(Particle* p)
+bool ParticleIsEmpty(const Particle& p)
 {
-    return p->material.name == MATERIAL_NAME_NONE;
+    return p.materialType == MaterialType::None;
 }
 
 // Returns true on full success.
@@ -243,12 +228,12 @@ SDL_Rect MouseCoordinatesToBounds(int gridWidth, int gridHeight, int cellSize, i
 // --------------------------------------------------------------------------------------------
 
 // Returns the particle located at x and y in the grid.
-Particle* GetParticleAt(const Grid& cells, int gridWidth, int x, int y)
+Particle* GetParticleAt(Grid& cells, int gridWidth, int x, int y)
 {
     int index = GetCellIndex(gridWidth, x, y);
-    if (index >= 0 && index < cells.size())
+    if (index >= 0 && index < static_cast<int>(cells.size()))
     {
-        return cells[index].get();
+        return &cells[index];
     }
     return nullptr;
 }
@@ -256,7 +241,7 @@ Particle* GetParticleAt(const Grid& cells, int gridWidth, int x, int y)
 // --------------------------------------------------------------------------------------------
 
 // Transforms a mouse coordinates tuple to a row and column accordingly to the grid.
-std::tuple<int, int> MouseCoordinatesToXY(int gridWidth, int gridHeight, int cellSize, int mouseX, int mouseY)
+SDL_Point MouseCoordinatesToXY(int gridWidth, int gridHeight, int cellSize, int mouseX, int mouseY)
 {
     int x = mouseX / cellSize;
     int y = mouseY / cellSize;
@@ -265,23 +250,23 @@ std::tuple<int, int> MouseCoordinatesToXY(int gridWidth, int gridHeight, int cel
     x = std::max(0, std::min(x, gridWidth - 1));
     y = std::max(0, std::min(y, gridHeight - 1));
 
-    return std::make_tuple(x, y);
+    return SDL_Point{ x, y };
 }
 
 // --------------------------------------------------------------------------------------------
 
 // Lights up a particle from the grid located at x and y.
-void RevealParticleAt(const Grid& cells, int gridWidth, int x, int y, const std::string& materialName)
+void RevealParticleAt(Grid& cells, int gridWidth, int x, int y)
 {
     Particle* spawnParticle = GetParticleAt(cells, gridWidth, x, y);
-
-    // Refresh material
-    spawnParticle->material.name = materialName;
-    spawnParticle->material.type = Solid;
+    if (spawnParticle)
+    {
+        spawnParticle->materialType = selectedMaterial;
+    }
 }
 
 // Lights up particles from the grid located in the bounds.
-void RevealParticlesAt(const Grid& cells, int gridWidth, const SDL_Rect& bounds, const std::string& materialName)
+void RevealParticlesAt(Grid& cells, int gridWidth, const SDL_Rect& bounds)
 {
     int xStart = bounds.x;
     int yStart = bounds.y;
@@ -308,30 +293,18 @@ void RevealParticlesAt(const Grid& cells, int gridWidth, const SDL_Rect& bounds,
         x = std::max(xStart, std::min(x, xEnd));
         y = std::max(yStart, std::min(y, yEnd));
 
-        RevealParticleAt(cells, gridWidth, x, y, materialName);
+        RevealParticleAt(cells, gridWidth, x, y);
     }
 }
 
 // p1 becomes p2 and p2 becomes p1.
 void SwapParticles(Particle& p1, Particle& p2)
 {
-    std::swap(p1.material.name, p2.material.name);
-    std::swap(p1.material.type, p2.material.type);
-    std::swap(p1.material.color, p2.material.color);
-    std::swap(p1.spreadRules, p2.spreadRules);
-}
-
-// Blits the particle to the window. (unused)
-void DrawParticle(SDL_Renderer* renderer, Particle* p, const SDL_Rect& rect)
-{
-    if (renderer && p)
-    {
-        SDL_RenderFillRect(renderer, &rect);
-    }
+    std::swap(p1, p2);
 }
 
 // Updates the solid particle located at x and y on the grid.
-void UpdateSolid(const Grid& cells, int gridWidth, int x, int y)
+void UpdateSolid(Grid& cells, int gridWidth, int x, int y)
 {
     Particle* solidParticle = GetParticleAt(cells, gridWidth, x, y);
 
@@ -340,25 +313,24 @@ void UpdateSolid(const Grid& cells, int gridWidth, int x, int y)
     Particle* blParticle = GetParticleAt(cells, gridWidth, x - 1, y + 1); // Below left
     Particle* brParticle = GetParticleAt(cells, gridWidth, x + 1, y + 1); // Below right
 
-    if (bParticle && (ParticleIsEmpty(bParticle) || ParticleCanSpreadTo(solidParticle, bParticle->material.name))) // Move down
+    if (bParticle && (ParticleIsEmpty(*bParticle) || ParticleCanSpreadTo(*solidParticle, *bParticle))) // Move down
     {
-        solidParticle->material.color = GetParticleContactColor(solidParticle, bParticle->material.name);
         SwapParticles(*bParticle, *solidParticle);
     }
 
-    else if (blParticle && ParticleIsEmpty(blParticle)) // Move down and left
+    else if (blParticle && ParticleIsEmpty(*blParticle)) // Move down and left
     {
         SwapParticles(*blParticle, *solidParticle);
     }
 
-    else if (brParticle && ParticleIsEmpty(brParticle)) // Move down and right
+    else if (brParticle && ParticleIsEmpty(*brParticle)) // Move down and right
     {
         SwapParticles(*brParticle, *solidParticle);
     }
 }
 
 // Updates the liquid particle located at x and y on the grid.
-void UpdateLiquid(const Grid& cells, int gridWidth, int x, int y)
+void UpdateLiquid(Grid& cells, int gridWidth, int x, int y)
 {
     Particle* liquidParticle = GetParticleAt(cells, gridWidth, x, y);
 
@@ -370,35 +342,34 @@ void UpdateLiquid(const Grid& cells, int gridWidth, int x, int y)
     Particle* blParticle = GetParticleAt(cells, gridWidth, x - 1, y + 1); // Below left
     Particle* brParticle = GetParticleAt(cells, gridWidth, x + 1, y + 1); // Below right
 
-    if (bParticle && (ParticleIsEmpty(bParticle) || ParticleCanSpreadTo(liquidParticle, bParticle->material.name))) // Move down
+    if (bParticle && (ParticleIsEmpty(*bParticle) || ParticleCanSpreadTo(*liquidParticle, *bParticle))) // Move down
     {
-        liquidParticle->material.color = GetParticleContactColor(liquidParticle, bParticle->material.name);
         SwapParticles(*bParticle, *liquidParticle);
     }
 
-    else if (blParticle && ParticleIsEmpty(blParticle)) // Move down and left
+    else if (blParticle && ParticleIsEmpty(*blParticle)) // Move down and left
     {
         SwapParticles(*blParticle, *liquidParticle);
     }
 
-    else if (brParticle && ParticleIsEmpty(brParticle)) // Move down and right
+    else if (brParticle && ParticleIsEmpty(*brParticle)) // Move down and right
     {
         SwapParticles(*brParticle, *liquidParticle);
     }
 
-    else if (lParticle && ParticleIsEmpty(lParticle)) // Move left
+    else if (lParticle && ParticleIsEmpty(*lParticle)) // Move left
     {
         SwapParticles(*lParticle, *liquidParticle);
     }
 
-    else if (rParticle && ParticleIsEmpty(rParticle)) // Move right
+    else if (rParticle && ParticleIsEmpty(*rParticle)) // Move right
     {
         SwapParticles(*rParticle, *liquidParticle);
     }
 }
 
 // Updates the gas particle located at x and y on the grid.
-void UpdateGas(const Grid& cells, int gridWidth, int x, int y)
+void UpdateGas(Grid& cells, int gridWidth, int x, int y)
 {
     Particle* gasParticle = GetParticleAt(cells, gridWidth, x, y);
 
@@ -413,9 +384,8 @@ void UpdateGas(const Grid& cells, int gridWidth, int x, int y)
 
     for (const auto& direction : directions)
     {
-        if (direction && (ParticleIsEmpty(direction) || ParticleCanSpreadTo(gasParticle, direction->material.name)))
+        if (direction && (ParticleIsEmpty(*direction) || ParticleCanSpreadTo(*gasParticle, *direction)))
         {
-            gasParticle->material.color = GetParticleContactColor(gasParticle, direction->material.name);
             SwapParticles(*direction, *gasParticle);
             break;
         }
@@ -423,7 +393,7 @@ void UpdateGas(const Grid& cells, int gridWidth, int x, int y)
 }
 
 // Updates the inputs related the the material selection.
-void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, int gridWidth, int gridHeight)
+void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, Grid& cells, int gridWidth, int gridHeight)
 {
     static bool mouseDown = false;
 
@@ -441,22 +411,21 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, 
         int mouseX;
         int mouseY;
         SDL_GetMouseState(&mouseX, &mouseY);
-        std::string filePath(MATERIAL_FILE_PATH);
 
-        switch (brush)
+        switch (selectedBrush)
         {
-        case Small:
+        case BrushType::Small:
         {
-            auto coords = MouseCoordinatesToXY(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY);
-            RevealParticleAt(cells, gridWidth, std::get<0>(coords), std::get<1>(coords), materialOptions[selectedMaterialOption]);
+            const SDL_Point coords = MouseCoordinatesToXY(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY);
+            RevealParticleAt(cells, gridWidth, coords.x, coords.y);
             break;
         }
-        case Medium:
-        case Big:
+        case BrushType::Medium:
+        case BrushType::Big:
         {
-            int brushSize = static_cast<std::underlying_type<BrushType>::type>(brush);
-            SDL_Rect bounds = MouseCoordinatesToBounds(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY, brushSize);
-            RevealParticlesAt(cells, gridWidth, bounds, materialOptions[selectedMaterialOption]);
+            int brushSize = static_cast<std::underlying_type<BrushType>::type>(selectedBrush);
+            const SDL_Rect bounds = MouseCoordinatesToBounds(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY, brushSize);
+            RevealParticlesAt(cells, gridWidth, bounds);
             break;
         }
         default:
@@ -466,28 +435,28 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, const Grid& cells, 
 }
 
 // Updates the particles motion.
-void UpdateParticleSimulation(SDL_Renderer* renderer, const Grid& cells, int gridHeight, int gridWidth)
+void UpdateParticleSimulation(SDL_Renderer* renderer, Grid& cells, int gridWidth, int gridHeight)
 {
     for (int y = gridHeight - 1; y > 0; y--)
     {
         for (int x = 0; x < gridWidth; x++)
         {
-            int matType = GetParticleAt(cells, gridWidth, x, y)->material.type;
+            MaterialType matType = GetParticleAt(cells, gridWidth, x, y)->materialType;
 
             switch (matType)
             {
-            case None:
+            case MaterialType::None:
                 break;
 
-            case Solid:
+            case MaterialType::Solid:
                 UpdateSolid(cells, gridWidth, x, y);
                 break;
 
-            case Liquid:
+            case MaterialType::Liquid:
                 UpdateLiquid(cells, gridWidth, x, y);
                 break;
 
-            case Gas:
+            case MaterialType::Gas:
                 UpdateGas(cells, gridWidth, x, y);
                 break;
 
@@ -503,11 +472,8 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const Grid& cells, int gri
         {
             Particle* currentParticle = GetParticleAt(cells, gridWidth, rowIndex, columnIndex);
             SDL_Rect rect = CellToRect(rowIndex, columnIndex, CELL_SIZE);
-            SDL_SetRenderDrawColor(renderer,
-                                   currentParticle->material.color.r,
-                                   currentParticle->material.color.g,
-                                   currentParticle->material.color.b,
-                                   currentParticle->material.color.a);
+            SDL_Color color = GetParticleColorOnCollision(*currentParticle, *currentParticle);
+            SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
             SDL_RenderFillRect(renderer, &rect);
         }
     }
@@ -516,6 +482,9 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, const Grid& cells, int gri
 // Renders the UI related to the brush type selection.
 void RenderBrushSelectionDropdown()
 {
+    static std::vector<std::string> brushOptions = { "Small (1px)", "Medium (extent = 8)", "Big (extent = 16)" };
+    static int selectedBrushOption = 0;
+
     if (ImGui::BeginCombo("Brush", brushOptions[selectedBrushOption].c_str()))
     {
         for (int i = 0; i < brushOptions.size(); i++)
@@ -529,15 +498,15 @@ void RenderBrushSelectionDropdown()
                 switch (selectedBrushOption)
                 {
                 case 0:
-                    brush = Small;
+                    selectedBrush = BrushType::Small;
                     break;
 
                 case 1:
-                    brush = Medium;
+                    selectedBrush = BrushType::Medium;
                     break;
 
                 case 2:
-                    brush = Big;
+                    selectedBrush = BrushType::Big;
                     break;
 
                 default:
@@ -558,6 +527,9 @@ void RenderBrushSelectionDropdown()
 // Renders the UI related to the material selection.
 void RenderMaterialSelectionDropdown()
 {
+    static std::vector<std::string> materialOptions = { "Solid", "Liquid", "Gas" };
+    static int selectedMaterialOption = 0;
+
     if (ImGui::BeginCombo("Material", materialOptions[selectedMaterialOption].c_str()))
     {
         for (int i = 0; i < materialOptions.size(); i++)
@@ -579,72 +551,31 @@ void RenderMaterialSelectionDropdown()
     }
 }
 
-// Render the UI related to the static elements of the custom particle creation such
-// as the name, type...
-void RenderStaticSection()
-{
-    static float initialColor[3];
-
-    ImGui::InputText("Name:", &p.name); // Name
-    ImGui::InputInt("Type (1 = solid, 2 = liquid, 3 = gas):", &p.type); // Type
-    ImGui::InputFloat("Initial life time:", &p.initialLifeTime); // Life time
-
-    if (ImGui::ColorPicker3("Initial color:", initialColor))
-    {
-        for (int i = 0; i < std::size(initialColor); i++)
-        {
-            p.initialColor[i] = initialColor[i] * 255;
-        }
-    }
-
-    ImGui::Text("Spread rules");
-    ImGui::Text("Can replace:"); // Can replace
-
-    for (int i = 0; i < p.canReplace.size(); i++)
-    {
-        std::string inputId = "##canreplace" + std::to_string(i);
-        ImGui::InputText(inputId.c_str(), &p.canReplace[i]);
-    }
-
-    if (ImGui::SmallButton("Add new replacement entry"))
-    {
-        p.canReplace.emplace_back();
-    }
-
-    ImGui::InputInt("Spread speed:", &p.spreadSpeed); // Spread speed
-}
-
 // Renders the entire UI in one same call.
-void OnImGuiRenderAll()
+void RenderImGui()
 {
-    ImGui::Begin("Panel");
+    ImGui::NewFrame();
 
-    ImGui::BeginTabBar("tab_bar");
-
-    if (ImGui::BeginTabItem("Controls"))
+    if (ImGui::Begin("Panel"))
     {
-        RenderBrushSelectionDropdown();
-        RenderMaterialSelectionDropdown();
-        ImGui::EndTabItem();
-    }
-
-    if (ImGui::BeginTabItem("Custom material editor"))
-    {
-        RenderStaticSection();
-        RenderContactColorsSection();
-        RenderContactSoundsSection();
-
-        if (ImGui::Button("Save material to file"))
+        if (ImGui::BeginTabBar("tab_bar"))
         {
-            SerializeParticle(p, std::string(MATERIAL_FILE_PATH));
+            if (ImGui::BeginTabItem("Controls"))
+            {
+                RenderBrushSelectionDropdown();
+                RenderMaterialSelectionDropdown();
+
+                ImGui::EndTabItem();
+            }
+
+            ImGui::EndTabBar();
+
         }
 
-        ImGui::EndTabItem();
+        ImGui::End();
     }
 
-    ImGui::EndTabBar();
-
-    ImGui::End();
+    ImGui::Render();
 }
 
 // Destroy ImGui and SDL related elements.
@@ -656,6 +587,7 @@ void Shutdown(SDL_Window* window, SDL_Renderer* renderer)
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    Mix_CloseAudio();
     SDL_Quit();
 }
 
@@ -677,20 +609,26 @@ int main(int argc, char* argv[])
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
 
+    const int gridWidth = WINDOW_WIDTH / CELL_SIZE;
+    const int gridHeight = WINDOW_HEIGHT / CELL_SIZE;
+
     Grid cells;
-    int width = static_cast<int>(std::floor(WINDOW_WIDTH / CELL_SIZE));
-    int height = static_cast<int>(std::floor(WINDOW_HEIGHT / CELL_SIZE));
-
-    for (int i = 0; i < width * height; i++)
+    for (int i = 0; i < gridWidth * gridHeight; i++)
     {
-        std::unique_ptr<Particle> newCell = std::make_unique<Particle>();
+        SpreadRules rules;
+        rules.canReplace = { MaterialType::None };
+        rules.contactColors =
+        {
+            {
+                MaterialType::None, SDL_Color{255,255,255,255}
+            } 
+        };
+        rules.spreadSpeed = 1;
 
-        newCell->material.name = MATERIAL_NAME_NONE;
-        newCell->material.type = None;
-        cells.push_back(std::move(newCell));
+        cells.push_back(Particle(rules, MaterialType::None));
     }
 
-    ImGuiIO& io = ImGui::GetIO();
+    const ImGuiIO& io = ImGui::GetIO();
 
     // Game loop
     while (!shouldQuit)
@@ -699,7 +637,7 @@ int main(int argc, char* argv[])
         while (SDL_PollEvent(&event))
         {
             ImGui_ImplSDL2_ProcessEvent(&event);
-            UpdateInputs(event, io, cells, width, height);
+            UpdateInputs(event, io, cells, gridWidth, gridHeight);
 
             if (event.type == SDL_QUIT)
             {
@@ -710,24 +648,18 @@ int main(int argc, char* argv[])
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
 
-        ImGui::NewFrame();
-
-        OnImGuiRenderAll();
-
-        ImGui::Render();
+        RenderImGui();
 
         SDL_RenderClear(renderer);
         SDL_RenderSetScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
 
-        UpdateParticleSimulation(renderer, cells, height, width);
+        UpdateParticleSimulation(renderer, cells, gridWidth, gridHeight);
 
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
 
         SDL_RenderPresent(renderer);
         SDL_Delay(10);
     }
-
-    cells.clear();
 
     Shutdown(window, renderer);
 
