@@ -1,15 +1,15 @@
 /****************************************************************************\
- * Pilot Alex, 2022-2024, All right reserved. Copyright (c) 2023.           *
+ * Pilot Alex, 2022-2024, All right reserved. Copyright (c).                *
  * Made by A.G. under the username of Pilot Alex.                           *
- * C++17, Visual Studio 2022.                                               *
+ * C++14, Visual Studio 2022.                                               *
 \****************************************************************************/
 
-#include <map>
 #include <cmath>
 #include <string>
 #include <random>
 #include <vector>
 #include <iostream>
+#include <unordered_map>
 
 #include <imgui.h>
 #include <imgui_stdlib.h> // ImGui with std::string
@@ -22,17 +22,19 @@
 #undef main
 
 constexpr int CELL_SIZE = 10;
-constexpr int WINDOW_HEIGHT = 800;
+constexpr int WINDOW_HEIGHT = 700;
 constexpr int WINDOW_WIDTH = 800;
 
 // --------------------------------------------------------------------------------------------
 
 enum class MaterialType
 {
-    None,   // Used to represent an empty cell/particle
-    Solid,  // Solid materials such as sand, salt and more
-    Liquid, // Liquid materials such as water, lava and more
-    Gas     // Gas materials such as toxic gas and more
+    None, // Used to represent an empty cell/particle
+    Sand,
+    Water,
+    Lava,
+    Acid,
+    ToxicGas
 };
 
 enum class BrushType
@@ -42,8 +44,8 @@ enum class BrushType
     Big    = 16 // Reveal particles in located in a rect with an extent of 16
 };
 
-static BrushType selectedBrush = BrushType::Small;
-static MaterialType selectedMaterial = MaterialType::Solid;
+static BrushType selectedBrushType = BrushType::Small;
+static MaterialType selectedMaterialType = MaterialType::Sand;
 
 // --------------------------------------------------------------------------------------------
 
@@ -51,8 +53,7 @@ struct SpreadRules
 {
     int spreadSpeed;
     std::vector<MaterialType> canReplace;
-    std::map<MaterialType, SDL_Color> contactColors;
-    std::map<MaterialType, std::string> contactSounds;
+    std::unordered_map<MaterialType, SDL_Color> contactColors;
 };
 
 struct Particle
@@ -63,11 +64,11 @@ struct Particle
     MaterialType materialType;
 
     Particle() = delete;
-    Particle(const SpreadRules& spreadRules, MaterialType materialType)
+    Particle(const SpreadRules& spreadRules)
         : lifeTime(-1.0f)
         , hasBeenUpdatedThisFrame(false)
         , spreadRules(spreadRules)
-        , materialType(materialType)
+        , materialType(MaterialType::None)
     {
     }
 };
@@ -89,11 +90,49 @@ float RandomFloat(float min, float max)
 
 // --------------------------------------------------------------------------------------------
 
+SpreadRules GetParticleSpreadRules(MaterialType materialType)
+{
+    SpreadRules rules;
+    switch (materialType)
+    {
+    case MaterialType::None:
+        rules = { 1, { MaterialType::None }, { { MaterialType::None, { 0, 0, 0, 255 } } } };
+        break;
+
+    case MaterialType::Sand:
+        rules = { 1, { MaterialType::None }, { { MaterialType::None, { 255, 255, 0, 255 } } } };
+        break;
+
+    case MaterialType::Water:
+        rules = { 1, { MaterialType::None }, { { MaterialType::None, { 0, 0, 255, 255 } } } };
+        break;
+
+    case MaterialType::Lava:
+        rules = { 1, { MaterialType::None }, { { MaterialType::None, { 255, 0, 0, 255 } } } };
+        break;
+
+    case MaterialType::Acid:
+        rules = { 1, { MaterialType::None }, { { MaterialType::None, { 88, 212, 0, 255 } } } };
+        break;
+
+    case MaterialType::ToxicGas:
+        rules = { 1, { MaterialType::None }, { { MaterialType::None, { 220, 220, 220, 255 } } } };
+        break;
+
+    default:
+        break;
+    }
+
+    return rules;
+}
+
+// --------------------------------------------------------------------------------------------
+
 // Returns a new rgb color as an SDL_Color struct that the particle p should
 // take when in collides with the material with type.
-SDL_Color GetParticleColorOnCollision(const Particle& p, const Particle& target)
+SDL_Color GetParticleColorOnCollision(const Particle& particle, const Particle& target)
 {
-    const auto& contactColors = p.spreadRules.contactColors;
+    const auto& contactColors = particle.spreadRules.contactColors;
 
     auto it = contactColors.find(target.materialType);
     if (it != contactColors.end())
@@ -114,10 +153,10 @@ int GetCellIndex(int gridWidth, int x, int y)
 
 // --------------------------------------------------------------------------------------------
 
-// Returns true if the particle p is allowed to spread and replace the material type.
-bool ParticleCanSpreadTo(const Particle& p, const Particle& target)
+// Returns true if the particle p is allowed to replace the material type.
+bool ParticleCanReplace(const Particle& particle, const Particle& target)
 {
-    const auto& spreadRules = p.spreadRules;
+    const auto& spreadRules = particle.spreadRules;
     const auto& canReplace = spreadRules.canReplace;
 
     auto it = std::find(canReplace.begin(), canReplace.end(), target.materialType);
@@ -138,9 +177,9 @@ bool CellIsEmpty(const Grid& cells, int gridWidth, int x, int y)
 }
 
 // Returns wether the cell located at x and y on the grid is empty or not.
-bool ParticleIsEmpty(const Particle& p)
+bool ParticleIsEmpty(const Particle& particle)
 {
-    return p.materialType == MaterialType::None;
+    return particle.materialType == MaterialType::None;
 }
 
 // Returns true on full success.
@@ -261,7 +300,8 @@ void RevealParticleAt(Grid& cells, int gridWidth, int x, int y)
     Particle* spawnParticle = GetParticleAt(cells, gridWidth, x, y);
     if (spawnParticle)
     {
-        spawnParticle->materialType = selectedMaterial;
+        spawnParticle->materialType = selectedMaterialType;
+        spawnParticle->spreadRules = GetParticleSpreadRules(spawnParticle->materialType);
     }
 }
 
@@ -313,7 +353,7 @@ void UpdateSolid(Grid& cells, int gridWidth, int x, int y)
     Particle* blParticle = GetParticleAt(cells, gridWidth, x - 1, y + 1); // Below left
     Particle* brParticle = GetParticleAt(cells, gridWidth, x + 1, y + 1); // Below right
 
-    if (bParticle && (ParticleIsEmpty(*bParticle) || ParticleCanSpreadTo(*solidParticle, *bParticle))) // Move down
+    if (bParticle && (ParticleIsEmpty(*bParticle) || ParticleCanReplace(*solidParticle, *bParticle))) // Move down
     {
         SwapParticles(*bParticle, *solidParticle);
     }
@@ -342,7 +382,7 @@ void UpdateLiquid(Grid& cells, int gridWidth, int x, int y)
     Particle* blParticle = GetParticleAt(cells, gridWidth, x - 1, y + 1); // Below left
     Particle* brParticle = GetParticleAt(cells, gridWidth, x + 1, y + 1); // Below right
 
-    if (bParticle && (ParticleIsEmpty(*bParticle) || ParticleCanSpreadTo(*liquidParticle, *bParticle))) // Move down
+    if (bParticle && (ParticleIsEmpty(*bParticle) || ParticleCanReplace(*liquidParticle, *bParticle))) // Move down
     {
         SwapParticles(*bParticle, *liquidParticle);
     }
@@ -384,7 +424,7 @@ void UpdateGas(Grid& cells, int gridWidth, int x, int y)
 
     for (const auto& direction : directions)
     {
-        if (direction && (ParticleIsEmpty(*direction) || ParticleCanSpreadTo(*gasParticle, *direction)))
+        if (direction && (ParticleIsEmpty(*direction) || ParticleCanReplace(*gasParticle, *direction)))
         {
             SwapParticles(*direction, *gasParticle);
             break;
@@ -412,7 +452,7 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, Grid& cells, int gr
         int mouseY;
         SDL_GetMouseState(&mouseX, &mouseY);
 
-        switch (selectedBrush)
+        switch (selectedBrushType)
         {
         case BrushType::Small:
         {
@@ -420,10 +460,11 @@ void UpdateInputs(const SDL_Event& event, const ImGuiIO& io, Grid& cells, int gr
             RevealParticleAt(cells, gridWidth, coords.x, coords.y);
             break;
         }
+
         case BrushType::Medium:
         case BrushType::Big:
         {
-            int brushSize = static_cast<std::underlying_type<BrushType>::type>(selectedBrush);
+            int brushSize = static_cast<std::underlying_type<BrushType>::type>(selectedBrushType);
             const SDL_Rect bounds = MouseCoordinatesToBounds(gridWidth, gridHeight, CELL_SIZE, mouseX, mouseY, brushSize);
             RevealParticlesAt(cells, gridWidth, bounds);
             break;
@@ -445,18 +486,17 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, Grid& cells, int gridWidth
 
             switch (matType)
             {
-            case MaterialType::None:
-                break;
-
-            case MaterialType::Solid:
+            case MaterialType::Sand:
                 UpdateSolid(cells, gridWidth, x, y);
                 break;
 
-            case MaterialType::Liquid:
+            case MaterialType::Lava:
+            case MaterialType::Water:
                 UpdateLiquid(cells, gridWidth, x, y);
                 break;
 
-            case MaterialType::Gas:
+            case MaterialType::Acid:
+            case MaterialType::ToxicGas:
                 UpdateGas(cells, gridWidth, x, y);
                 break;
 
@@ -472,7 +512,7 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, Grid& cells, int gridWidth
         {
             Particle* currentParticle = GetParticleAt(cells, gridWidth, rowIndex, columnIndex);
             SDL_Rect rect = CellToRect(rowIndex, columnIndex, CELL_SIZE);
-            SDL_Color color = GetParticleColorOnCollision(*currentParticle, *currentParticle);
+            SDL_Color color = currentParticle->spreadRules.contactColors[MaterialType::None]; // FIX ME
             SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
             SDL_RenderFillRect(renderer, &rect);
         }
@@ -482,7 +522,7 @@ void UpdateParticleSimulation(SDL_Renderer* renderer, Grid& cells, int gridWidth
 // Renders the UI related to the brush type selection.
 void RenderBrushSelectionDropdown()
 {
-    static std::vector<std::string> brushOptions = { "Small (1px)", "Medium (extent = 8)", "Big (extent = 16)" };
+    static std::vector<std::string> brushOptions = { "Small (1px)", "Medium (extent = 8px)", "Big (extent = 16px)" };
     static int selectedBrushOption = 0;
 
     if (ImGui::BeginCombo("Brush", brushOptions[selectedBrushOption].c_str()))
@@ -498,15 +538,15 @@ void RenderBrushSelectionDropdown()
                 switch (selectedBrushOption)
                 {
                 case 0:
-                    selectedBrush = BrushType::Small;
+                    selectedBrushType = BrushType::Small;
                     break;
 
                 case 1:
-                    selectedBrush = BrushType::Medium;
+                    selectedBrushType = BrushType::Medium;
                     break;
 
                 case 2:
-                    selectedBrush = BrushType::Big;
+                    selectedBrushType = BrushType::Big;
                     break;
 
                 default:
@@ -527,7 +567,7 @@ void RenderBrushSelectionDropdown()
 // Renders the UI related to the material selection.
 void RenderMaterialSelectionDropdown()
 {
-    static std::vector<std::string> materialOptions = { "Solid", "Liquid", "Gas" };
+    static std::vector<std::string> materialOptions = { "Sand", "Water", "Lava", "Acid", "ToxicGas" };
     static int selectedMaterialOption = 0;
 
     if (ImGui::BeginCombo("Material", materialOptions[selectedMaterialOption].c_str()))
@@ -539,6 +579,32 @@ void RenderMaterialSelectionDropdown()
             if (ImGui::Selectable(materialOptions[i].c_str(), isSelected))
             {
                 selectedMaterialOption = i;
+
+                switch (selectedMaterialOption)
+                {
+                case 0:
+                    selectedMaterialType = MaterialType::Sand;
+                    break;
+
+                case 1:
+                    selectedMaterialType = MaterialType::Water;
+                    break;
+
+                case 2:
+                    selectedMaterialType = MaterialType::Lava;
+                    break;
+
+                case 3:
+                    selectedMaterialType = MaterialType::Acid;
+                    break;
+
+                case 4:
+                    selectedMaterialType = MaterialType::ToxicGas;
+                    break;
+
+                default:
+                    break;
+                }
 
                 if (isSelected)
                 {
@@ -558,19 +624,8 @@ void RenderImGui()
 
     if (ImGui::Begin("Panel"))
     {
-        if (ImGui::BeginTabBar("tab_bar"))
-        {
-            if (ImGui::BeginTabItem("Controls"))
-            {
-                RenderBrushSelectionDropdown();
-                RenderMaterialSelectionDropdown();
-
-                ImGui::EndTabItem();
-            }
-
-            ImGui::EndTabBar();
-
-        }
+        RenderBrushSelectionDropdown();
+        RenderMaterialSelectionDropdown();
 
         ImGui::End();
     }
@@ -615,17 +670,8 @@ int main(int argc, char* argv[])
     Grid cells;
     for (int i = 0; i < gridWidth * gridHeight; i++)
     {
-        SpreadRules rules;
-        rules.canReplace = { MaterialType::None };
-        rules.contactColors =
-        {
-            {
-                MaterialType::None, SDL_Color{255,255,255,255}
-            } 
-        };
-        rules.spreadSpeed = 1;
-
-        cells.push_back(Particle(rules, MaterialType::None));
+        Particle particle(GetParticleSpreadRules(MaterialType::None));
+        cells.push_back(particle);
     }
 
     const ImGuiIO& io = ImGui::GetIO();
