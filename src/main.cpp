@@ -23,7 +23,7 @@
 
 constexpr int CELL_SIZE = 10;
 constexpr int WINDOW_HEIGHT = 700;
-constexpr int WINDOW_WIDTH = 800;
+constexpr int WINDOW_WIDTH = 700;
 
 // --------------------------------------------------------------------------------------------
 
@@ -100,11 +100,11 @@ SpreadRules GetParticleSpreadRules(MaterialType materialType)
         break;
 
     case MaterialType::Sand:
-        rules = { 1, { MaterialType::None }, { { MaterialType::None, { 255, 255, 0, 255 } } } };
+        rules = { 1, { MaterialType::None, MaterialType::Water }, { { MaterialType::None, { 255, 255, 0, 255 } }, { MaterialType::Water, { 255, 255, 0, 255 } } } };
         break;
 
     case MaterialType::Water:
-        rules = { 1, { MaterialType::None }, { { MaterialType::None, { 0, 0, 255, 255 } } } };
+        rules = { 1, { MaterialType::None, MaterialType::Lava }, { { MaterialType::None, { 0, 0, 255, 255 } }, { MaterialType::Lava, { 230, 230, 0, 255 } } } };
         break;
 
     case MaterialType::Lava:
