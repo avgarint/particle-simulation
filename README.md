@@ -1,4 +1,4 @@
-# particle-simulation-cpp
+# particle-simulation
 
 A C++ project that simulates the motion of different materials such as sand, water and lava using SDL2.
 
